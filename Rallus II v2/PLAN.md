@@ -1,79 +1,109 @@
 # Rallus II v2 — Canard Roll Control Avionics
 
-Active canard control for Rallus II, 2 in airframe, CTI J-class solid motor
-(fixed impulse, no throttle). Phase 1: roll control (anti-spin). Phase 2:
-boost-phase attitude stabilization (pitch/yaw). Hardware is 4-canard capable
-from the start so phase 2 is a firmware update, not an airframe rebuild.
+Active canard control for Rallus II, 2 in airframe, custom EX J-class solid
+motor (fixed impulse, no throttle). Phase 1: roll control (anti-spin).
+Phase 2: boost-phase attitude stabilization (pitch/yaw). Hardware is
+4-canard capable from the start so phase 2 is a firmware update, not an
+airframe rebuild.
 
-v1 (`../Rallus II v1/`) is the frozen archive: original OpenRocket file and
-the aft-fin-control revision of this plan. Everything active lives here.
+v1 (`../Rallus II v1/`) is the frozen archive. Everything active lives here.
 
-## Vehicle (from Rallus Mk.II V1.ork)
+## Vehicle (Rallus Mk.II V2.ork, revised 2026-11-09)
 
 Two-stage model of the mid-break airframe. Separation at apogee — in the
 real rocket the halves are held by explosive bolts and split at the break;
-each half recovers on its own 24 in ripstop chute.
+each half recovers under its own chute (24 in upper, 30 in booster).
 
 | | |
 |---|---|
-| Total length | 1.17 m (nose cone 282 + upper tube 305 + coupler 25 + booster 559 mm) |
+| Total length | 1.17 m (nose 282 + upper tube 305 + coupler 25 + booster 559 mm) |
 | Diameter | 2.0 in (50.8 mm OD) |
 | Upper section | PLA conical nose (362 g) + aluminum tube, 2 mm wall, 305 mm |
-| Booster | steel tube, 3 mm wall, 559 mm + 4 steel fins (141 mm chord, 50 mm span) |
-| Motor | Custom propellant (EX), modeled in ORK as the closest commercial equivalent: CTI 1115J530-15A, 38 mm, ~2.1 s burn. EX at organized launches = TRA EX rules, L2-equivalent standing |
-| Liftoff mass | ~4.25 kg (est. from ORK components incl. 0.2 kg avionics bay) |
-| Rail | 1010 buttons, 3 m rail, 33.8 m/s off the rail |
+| Booster | steel tube, 3 mm wall, 559 mm + 4 steel fins, 141 mm root, 65 mm span |
+| Canards | 4x brass, 35 mm root / 15.4 mm tip / 28 mm span, 35 deg LE sweep, 1.5 mm |
+| Motor | Custom EX propellant, modeled as CTI 1115J530-15A (~530 N, ~2.1 s) |
+| Liftoff mass | ~4.56 kg (component sum; motor estimated 1.3 kg loaded) |
 
-OpenRocket sim (V1 file): apogee **2485 m**, max velocity **263 m/s (M0.78,
-transonic)**, max accel **19.3 g**, time to apogee 21.6 s.
+V1 sim reference: apogee 2485 m, 263 m/s (M0.78) burnout, 19.3 g, 33.8 m/s
+off a 3 m rail. V2 is slightly draggier (bigger surfaces); re-sim pending.
 
 **Control section = upper half only.** The break at the coupler means the
-canards, servos, avionics stack, and battery all live in the aluminum upper
-tube, forward of the split, and fly with the nose on their own chute. The
-booster is passive.
+canards, servos, avionics, and battery live in the aluminum upper tube,
+forward of the split. The booster is passive.
 
-**Room**: the ORK reserves a 0.27 m long, ~49 mm diameter payload volume in
-the upper tube. That is the avionics bay — genuinely a lot of room for a
-Pico 2 stack, 4 micro servos, and a 2S pack.
+## Feasibility & optimization pass (2026-11-09, `sim/stability.py`)
+
+Numbers from a Barrowman + mass-model analysis of the ORK; final authority
+is an OpenRocket run (checklist at the bottom).
+
+### Verdicts
+
+| Quantity | As received (V1) | V2 revised | Status |
+|---|---|---|---|
+| Canard roll authority vs 0.5 deg cant @ 15 deg | 3.1 | 13.2 | fixed (was borderline) |
+| Canard roll authority vs 0.5 deg cant @ 3 deg (transonic cap) | 0.63 | 2.63 | **fixed: was infeasible** |
+| Static margin loaded / burnout | 3.5 / 3.9 cal | 2.35 / 2.70 cal | traded for canards, healthy |
+| Static margin at M0.78 (est) | 2.6 cal | 1.84 cal | verify in OR, target >= 1.5 |
+| Roll accel authority, 35 / 100 / 263 m/s | - | 1.6k / 2.5k / 15.5k deg/s^2 | massive rate damping margin |
+| Canard hinge moment, worst case | - | ~0.053 N·m | 4x inside MG90S (0.22 N·m) |
+| Booster half descent | 10.5 m/s (24 in) | ~7.9 m/s (30 in) | fixed |
+| Upper half descent | ~6 m/s | unchanged | ok |
+| TWR at liftoff | 12:1 | ~12:1 | ok |
+| Gyro saturation risk | - | uncontrolled 0.5 deg cant = 3900 deg/s^2 spin-up at burnout | control live from liftoff covers it |
+
+### What changed and why
+
+1. **Canards 2x(20x10 mm, 1 mm) -> 4x(35/15.4/28 mm, 35 deg sweep, 1.5 mm
+   brass, 7.06 cm^2 each).** The drawn canards were control-authority-starved
+   at the transonic taper: a single booster fin canted half a degree
+   (realistic build tolerance) produced 1.6x more roll torque than the
+   canards could counter at their 3 deg burnout limit -> integrator rails,
+   residual torque spins the rocket. 7.06 cm^2 restores a 2.6x margin at the
+   cap and 13x at full deflection. Sized by sweeping geometry against the
+   A/D ratio AND the static-margin constraint simultaneously (`--canard-sweep`).
+2. **Booster fin span 50 -> 65 mm** (root 141 mm and LE sweep angle kept,
+   tip chord shrinks to 55.5 mm, area 63.8 cm^2 each, +47 g total). Big
+   canards shift CP forward; the span buys the transonic margin back
+   (est 1.06 -> 1.84 cal at M0.78). Steel, 1.5 mm, airfoil section: no
+   flutter concern at this span and speed.
+3. **Booster chute 24 -> 30 in.** Booster half is ~3.1 kg after burnout;
+   24 in lands it at 10.5 m/s, 30 in at 7.9 m/s.
+4. **Avionics bay modeled as a real 0.2 kg** at the canard bay station
+   (Pico stack + 4 MG90S + 2S 450 + BEC + sled + shafts).
+5. **Sim timestep 0.05 -> 0.01 s**, stale V1 flight data stripped.
+
+### Reviewed and deliberately unchanged
+
+- **Nose cone**: conical PLA, fineness 5.6. An ogive or von Karman would
+  shave a few percent CD at M0.78, but it is printed hardware with a decal
+  and 362 g of forward mass the stability margin wants. Revisit only if the
+  re-sim shows marginal apogee.
+- **Upper tube 2 mm alu wall**: overbuilt for pressure, right for carrying
+  canard shaft loads and the mid-break loads path. Keep.
+- **Booster 3 mm steel tube**: heavy (1.98 kg) but it is the airframe as
+  designed and margin is healthy. Not worth fighting.
+- **Paper transition at the break**: left as-is in the ORK (mass
+  negligible), but the REAL break hardware must be an aluminum/steel coupler
+  with the bolt carriers. Estimated 150-250 g at x~0.6 m moves CG forward,
+  which IMPROVES margin ~0.2 cal. Add to the ORK once the coupler design
+  exists.
+- **Rail buttons**: 1010 pair, one per section, correct for the 3 m rail.
+- **Motor mount**: 38 mm, flush overhang. Matches the CTI stand-in; swap to
+  the measured EX curve after static testing.
+- **Chute deploy**: apogee + 2 s both halves (altimeter's job). V1 sim
+  deployed at 17.9 m/s; check opening loads on the re-sim.
+- **Cant angles**: 0 deg on canards and booster fins (symmetric, as they
+  should be; the controller exists precisely because we do not cant).
 
 ## Decisions
 
-1. **Scope:** Roll control first on 4-servo / 4-canard hardware. Attitude
-   control later.
-2. **Recovery + separation:** A commercial altimeter fires the charges and
-   the explosive-bolt system. This board is control + logging only and rides
-   the upper section. It never touches pyro unless that decision changes.
-3. **Motor:** Custom propellant, our own load. The ORK and the sim carry a
-   CTI 1115J530 thrust curve as the closest commercial equivalent — when the
-   real static-test data exists, replace the curve and re-run everything.
-   Fixed impulse either way; control authority is purely aerodynamic.
-4. **Telemetry:** Onboard logging only. No radio in phase 1.
-5. **Flight computer:** Raspberry Pi Pico 2 (RP2350, dual Cortex-M33 @
-   150 MHz, FPU, 520 KB SRAM) for ALL phases. Native 3.3 V (no level
-   shifters). Pico 2 W is a +$2 option covering future WiFi telemetry.
-6. **Toolchain:** Pico SDK, C/C++, CMake, UF2 over USB. No Arduino framework.
-7. **IMU:** ICM-42688-P (gyro +/-2000 dps, accel +/-32 g, SPI). The 19.3 g
-   boost is why: a 16 g part would clip. Baro: MS5611 (SPI).
-
-## Physics constraints
-
-- Solid motor = fixed burn. The only control input is canard deflection.
-- Canard force scales with Q = 0.5*rho*v^2. Below ~15 m/s: no authority.
-  At 263 m/s: Q ~ 42 kPa, hinge loads get real, flutter margin shrinks.
-- **Transonic (M0.78 max):** canard effectiveness wanders near Mach 1 and
-  roll reversal is possible at large deflections. Handled two ways: Q-squared
-  gain scheduling (deflections shrink ~100x at burnout vs 25 m/s) and a hard
-  deflection taper in firmware — full 15 deg below 100 m/s, linearly down to
-  3 deg by 250 m/s (`DEFLECT_*` in config.h).
-- Forward canards shift CP forward and eat static margin. V2.ork models the
-  4 canards; **run its stability sim before cutting metal** — static margin
-  must stay >= 1.5 cal with canards at neutral. The booster's big steel
-  fins dominate CP, and the V1 layout already had 2 fins up there, so the
-  margin should hold, but verify.
-- Gyro range +/-2000 dps = 5.5 rev/s. Control arms at liftoff detection,
-  not burnout.
-- Nothing fin-based holds the rocket up at apogee. Attitude control (phase
-  2) is boost/coast weathercock reduction only.
+1. **Scope:** Roll control first, attitude control later.
+2. **Recovery + separation:** Commercial altimeter fires charges and bolts.
+   This board is control + logging only, rides the upper section.
+3. **Motor:** Custom EX propellant, CTI 1115J530 stand-in curve in sims.
+4. **Telemetry:** Onboard logging only in phase 1.
+5. **Flight computer:** Pico 2 (RP2350) for all phases, Pico SDK C.
+6. **IMU:** ICM-42688-P (32 g — mandatory, 19.3 g boost), MS5611 baro.
 
 ## System architecture
 
@@ -96,146 +126,108 @@ Pico 2 stack, 4 micro servos, and a 2S pack.
      GP5  CS_IMU                   GP9  CS_BARO
                                    GP10 CS_FLASH
    Servos (PWM 50 Hz): GP11, GP12, GP14, GP15
-   Arm input (RBF pin, pull-up, to GND when inserted): GP16
-   Battery sense (10k/2k divider off 2S): GP26/ADC0
-   Status LED: GP25 (onboard)
+   Arm input (RBF pin, pull-up): GP16
+   Battery sense (10k/2k divider): GP26/ADC0
+   Status LED: GP25
 ```
 
-Roll mixing (phase 1): canards 0,2 deflect +delta, 1,3 deflect -delta.
-Pitch/yaw mixing (phase 2): collective pairs added on top of the roll term.
+Roll mixing (phase 1): canards 0,2 +delta, 1,3 -delta. Phase 2 adds
+collective pitch/yaw on top.
 
 ## Hardware
 
-### Flight computer
-Pico 2. Core 0 runs the 1 kHz control ISR: IMU read, state machine, PI,
-taper, servo write, watchdog feed. Core 1: baro, flash, USB, LED. Hardware
-watchdog fed only by the control ISR. Reset reason logged at boot.
-
-### IMU
-ICM-42688-P: +/-32 g (19.3 g peak + vibration headroom), +/-2000 dps gyro,
-~$9 GY breakout at 3.3 V. 1 kHz ODR. Hard-mounted, sensor-side filtering.
-
-### Baro
-MS5611-01BA on SPI1, full datasheet compensation. The bay vents through a
-1/8 in hole drilled in the aluminum upper tube (metal tube = no leakage
-through the wall, the vent is mandatory).
-
-### Logging
-W25Q128 SPI NOR flash, 16 MB, on SPI1. 250 Hz x 36 B records. Flight log
-never touches the Pico's boot flash.
-
-### Servos + canards
-4x MG90S-class digital metal-gear (~2.2 kg-cm). Canards: 20 mm chord,
-10 mm span freeform (the ORK V2 fin set — brass, 1 mm thick, same shape as
-the V1 nose fins). At max Q a 3 deg deflection loads a canard hinge around
-5 mN·m — orders of magnitude inside MG90S margin. Hinge moment check at
-15 deg / 100 m/s still passes; recheck if canard geometry changes.
-
-### Power
-2S 450 mAh LiPo. 5V/3A switching BEC -> servo rail + Pico VSYS. 1000 uF
-across the servo rail. Bench test: all four servos stalled while logging.
+- **Pico 2:** core 0 = 1 kHz control ISR (sole watchdog feeder), core 1 =
+  baro/flash/USB/LED. Reset reason logged.
+- **ICM-42688-P:** +/-32 g, +/-2000 dps, SPI0, 1 kHz ODR, hard-mounted.
+- **MS5611:** SPI1, full datasheet compensation, 1/8 in vent hole in the
+  aluminum tube (mandatory, metal blocks pressure).
+- **W25Q128:** 16 MB log, 250 Hz x 36 B records, boot flash untouched.
+- **Servos:** 4x MG90S. Hinge moment worst case ~0.053 N·m (263 m/s, 3 deg)
+  vs 0.22 N·m rating. Mount launch-load perpendicular to output axes.
+- **Power:** 2S 450 mAh, 5V/3A BEC, 1000 uF. Bench 4-servo stall test.
 
 ## Mechanical
 
-- Canard fin can at the TOP of the upper tube, just below the nose cone
-  shoulder: 4 canards on 3 mm shafts through the aluminum wall, each driven
-  directly by its servo. OpenSCAD in `hardware/` once fin can design starts.
-- Avionics sled directly behind the canard bay in the 0.27 m payload volume:
-  4 servos forward around the perimeter, Pico 2 + MS5611 + flash stacked
-  center, battery aft of the electronics (mass forward helps phase 2
-  anyway).
-- Servos mounted so launch load is perpendicular to the output axis;
-  threadlock the horns; tight shaft fits (wobble = flutter).
-- Everything forward of the mid-break coupler. The altimeter and its battery
-  ride wherever the recovery layout wants them (also upper section).
+- Canard fin can at the top of the upper tube, just below the nose shoulder:
+  4 canards on 3 mm shafts through the wall, direct drive. OpenSCAD in
+  `hardware/` when the fin can design starts.
+- Avionics sled behind the canard bay in the 0.27 m payload volume: servos
+  forward, Pico stack center, battery aft.
+- Everything forward of the mid-break coupler.
 
 ## Software
 
-Firmware in `firmware/`, Pico SDK C. File map and wiring in
-`firmware/README.md`.
+Firmware in `firmware/` (builds clean). State machine PADIDLE -> ARMED ->
+BOOST -> COAST -> APOGEE -> DESCENT -> LANDED; canards driven only in
+BOOST/COAST with v_hat in [15, 275] m/s; deflection taper 15 -> 3 deg across
+100-250 m/s; PI with (v_ref/v)^2 gain scheduling; watchdog fed only by the
+control ISR; USB CLI (h/s/i/w/d/e/f/b/x).
 
-### State machine
-```
-PADIDLE -> ARMED -> BOOST -> COAST -> APOGEE -> DESCENT -> LANDED
-```
-- ARMED: RBF pulled + 3 s stillness (gyro bias cal) + battery >= 6.8 V.
-  5-min pad timeout.
-- LIFTOFF: >3 g axial sustained 40 ms. BOOST->COAST: <0.5 g sustained
-  100 ms. APOGEE: v_hat < 5 m/s or baro 2 m below max — this roughly
-  coincides with the explosive-bolt separation event; the accel spike it
-  produces lands after control has already been disabled.
-- Canards driven ONLY in BOOST/COAST with v_hat in [15, 275] m/s. Every
-  other state: exact center.
-- Watchdog fed only in the control ISR. IMU failure >200 ms: neutral +
-  fault logged.
-
-### Roll control law (phase 1)
-PI on roll-rate error, gains scheduled (v_ref/v)^2 above 25 m/s, deflection
-tapered 15 -> 3 deg across 100-250 m/s, command slew limited, anti-windup.
-Starting gains from `sim/roll_sim.py` (now carrying real Rallus II numbers).
-
-### Phase 2 (attitude)
-Gyro integration + accel gravity correction (gated off during boost),
-pitch/yaw PID -> collective canard commands. Canards up front is the
-classic layout for this. Same Pico 2.
-
-### Log record (36 B packed)
-t, ax/ay/az mg, gx/gy/gz dps*10, v_hat cm/s, MS5611 D1, D2, delta deg*100,
-battery mV, state, fault flags.
+**Logging (the post-mortem guarantee):** every IMU sample, state, servo
+command, battery reading, and baro pair is recorded. 1 kHz during flight and
+the first 30 s of descent (separation + chute events), 100 Hz for the rest of
+descent, 50 Hz armed, 10 Hz idle. Full mission ~3.5 MB of 16 MB. Flash header
+captures gyro bias + gains at arming, checkpoints every 256 KB in flight, so
+even a crash leaves a complete, decodable record of what the controller saw
+and did (`tools/dump_log.py` -> CSV with meta).
 
 ## Simulation
 
-`sim/roll_sim.py`: 1-DOF roll dynamics with Rallus II numbers (4.1 kg,
-J530 thrust, CD 0.5, Ixx ~0.0015 kg·m², 4 canards at r=30 mm). Same
-discrete PI + taper + servo lag as firmware. Post-flight: replay logged
-v(t), compare commanded vs actual roll rate.
+- `sim/stability.py` — parses the ORK, mass model + Barrowman CP + canard
+  authority sizing. Rerun after any geometry change:
+  `python3 sim/stability.py openrocket/"Rallus Mk.II V2.ork" --canard-sweep`
+- `sim/roll_sim.py` — 1-DOF roll sim, V2 geometry, mirrors the firmware PI
+  + taper. Current placeholder-gain result: worst roll ~35 deg/s in boost,
+  ~3 deg/s by 10 s. Retune with `--sweep` after OR data lands.
+- `firmware/tools/dump_log.py` — flight log -> CSV.
 
-## Test campaign (do not skip steps)
+## Test campaign
 
-1. **Bench:** banner IDs, baro vs local weather, servo sweep + trim, 4-servo
-   stall brownout test.
-2. **Sim:** gains from `roll_sim.py`.
-3. **Spin test:** hand-spin the upper section, canards counter-rotate the
-   right way; fix `ROLL_DIR` if not.
-4. **Shaker/handling:** RBF logic, arm timeouts, log capture.
-5. **Locked-canard flight:** full stack flies passive, log validates
-   v_hat vs ORK sim (263 m/s, 19.3 g, 21.6 s apogee).
-6. **Roll-active flight.** Compare, retune.
-7. **Phase 2 attitude flights** after two clean roll flights.
+1. Bench: IDs, baro sanity, servo sweep, 4-servo stall brownout test.
+2. Sim gains from roll_sim.
+3. Spin test (sets ROLL_DIR).
+4. Locked-canard flight, full log.
+5. Roll-active flight.
+6. Phase 2 attitude flights.
 
-## OpenRocket TODO
+## Sim handoff — run these, bring back the numbers
 
-- `openrocket/Rallus Mk.II V2.ork` — V1 revised: 2 nose fins replaced by 4
-  canards (same geometry, 90 deg spacing), avionics bay modeled as a real
-  0.2 kg mass at the top of the upper tube, stale V1 flight data stripped,
-  sim timestep tightened to 0.01 s for transonic runs. **Open it, run the
-  stability + flight sims, record**: static margin with canards neutral,
-  CG/CP, Q(t), hinge moments at 15 deg / 100 m/s and 3 deg / 263 m/s.
-- Confirm margin >= 1.5 cal. If canards push CP too far forward, shrink
-  span or grow the booster fins.
-- Feed the sim results back into `sim/roll_sim.py` (IXX especially).
+In OpenRocket 24.12, open `openrocket/Rallus Mk.II V2.ork`:
+
+1. Let it finish analyzing; screenshot or transcribe the warnings panel.
+2. Run the existing simulation. Report:
+   - apogee, max velocity, max Mach, max acceleration, time to apogee
+   - velocity off the rail
+   - landing speed of each stage (separation event view)
+3. Stability: the rocket info panel shows CG/CP and margin. Report margin
+   at loaded and burnout mass. If you can plot the sim, also report margin
+   and Mach at burnout time (the transonic worst case).
+4. Compare against my estimates: margin 2.35/2.70 cal (loaded/burnout),
+   ~1.84 cal at M0.78. If OR disagrees by more than ~0.5 cal or shows
+   margin < 1.5 cal anywhere, stop and we rebalance canard/fin sizes.
+5. If the real EX thrust curve differs from the J530, add it as a custom
+   motor and rerun; bring the same numbers.
 
 ## Risks
 
 | Risk | Mitigation |
 |---|---|
-| Canards shift CP forward, destabilize | V2.ork stability sim before cutting; margin >= 1.5 cal |
-| Transonic flutter / roll reversal | Deflection taper to 3 deg, thick low-AR brass canards, gains Q-scheduled |
-| Servo rail brownout during boost | Dedicated BEC, 1000 uF, 4-servo stall bench test |
-| Separation shock at apogee | Control already disabled by APOGEE; accel spike is post-authority |
-| Gyro saturation before control engages | Arm at liftoff, not burnout |
-| Vibration aliasing IMU | Hard mount, 1 kHz ODR, sensor-side filtering |
-| Hung control loop | Watchdog fed only by control ISR |
-| Metal tube blocks baro | 1/8 in vent hole, mandatory |
-| Wrong canard sign convention | Ground spin test |
-| Custom motor curve differs from CTI stand-in | Static test the real grain, swap the thrust curve, re-run ORK + sim before flight |
-| EX motor at launch | TRA EX rules apply — fly on the EX range, L2-equivalent standing |
+| Transonic margin thinner than my estimate | OR sim gate: >= 1.5 cal everywhere; else booster span 70 mm or canards 30x24 |
+| Booster fin cant eats canard authority | A/D 2.63 at the 3 deg cap vs 0.5 deg cant; jig the fin alignment, 0.2 deg is achievable |
+| Transonic flutter / roll reversal | 3 deg hard cap at speed, swept low-AR brass, Q-scheduled gains |
+| Servo rail brownout | BEC + 1000 uF + stall test |
+| Separation shock at apogee | Control disabled by APOGEE state before the event |
+| Gyro saturation before control engages | Arm at liftoff detection |
+| Metal tube blocks baro | 1/8 in vent hole |
+| Wrong canard sign | Ground spin test |
+| Paper break joint in ORK | Real coupler must be metal; add to ORK after design |
+| EX curve differs from CTI stand-in | Static test, swap curve, rerun everything |
 
 ## Milestones
 
 - M0: plan + BOM done, parts ordered
 - M1: firmware builds (done), bench suite green
-- M2: V2.ork sims validated, canard fin can + sled built, spin test passed
-- M3: locked-canard flight, full log recovered
+- M2: OR sims validated (pending handoff numbers), fin can + sled built, spin test
+- M3: locked-canard flight
 - M4: first roll-active flight
 - M5: phase 2 attitude control

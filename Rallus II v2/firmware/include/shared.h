@@ -28,11 +28,19 @@ typedef struct {
     volatile bool      bench;
     // set by core 0 state machine: stop pushing new log records
     volatile bool      log_hold;
+    // core 0 -> core 1: snapshot flight meta into the flash header. Core 0
+    // fills meta_req under meta_cs and bumps meta_seq; core 1 picks it up
+    // in its loop and calls flashlog_set_meta().
+    critical_section_t meta_cs;
+    log_meta_t         meta_req;
+    volatile uint32_t  meta_seq;
 } shared_sys_t;
 
 extern shared_sys_t g_sys;
 
 void shared_init(void);
+void request_log_meta(const log_meta_t *m);   // core 0 (ISR context ok)
+bool take_log_meta(log_meta_t *out);          // core 1, true if new request
 
 void publish_baro(uint32_t d1, uint32_t d2, float press_pa, float alt_m, uint32_t t_ms);
 void read_baro(baro_shared_t *out);

@@ -15,12 +15,11 @@
 #define FL_JEDEX_MFR      0xEF   // Winbond
 #define FL_JEDEC_MEM_16M  0x4018 // type 0x40, capacity 0x18 (16 MB)
 
-typedef struct __attribute__((packed)) {
-    uint32_t magic;
-    uint32_t version;
-    uint32_t records;
-    uint32_t reserved;
-} fl_header_t;   // sector 0
+// 24-byte header type (log_meta_t) lives in datadefs.h; shared with the
+// ground decode tool.
+static log_meta_t meta;
+static uint32_t   meta_ckpt_offset;   // fl_offset at last header checkpoint
+#define META_CKPT_BYTES (256u * 1024u)
 
 static bool     ok;
 static bool     full;
@@ -94,19 +93,24 @@ static bool fl_erase_sector(uint32_t addr) {
 
 static bool fl_write_header(void) {
     if (!fl_erase_sector(0)) return false;
-    fl_header_t h = {
-        .magic = LOG_MAGIC,
-        .version = LOG_VERSION,
-        .records = fl_count,
-    };
+    meta.magic   = LOG_MAGIC;
+    meta.version = LOG_VERSION;
+    meta.records = fl_count;
     fl_wren();
     uint8_t tx[4] = { FL_CMD_PAGE_PROG, 0, 0, 0 };
     cs(false);
     spi_write_blocking(spi1, tx, 4);
-    spi_write_blocking(spi1, (const uint8_t *)&h, sizeof h);
+    spi_write_blocking(spi1, (const uint8_t *)&meta, sizeof meta);
     cs(true);
     return fl_wait_busy(100);
 }
+
+void flashlog_set_meta(const log_meta_t *m) {
+    meta = *m;
+    meta.records = fl_count;
+}
+
+void flashlog_get_meta(log_meta_t *out) { *out = meta; }
 
 bool flashlog_ok(void) { return ok; }
 
@@ -128,15 +132,16 @@ bool flashlog_init(void) {
     uint32_t jedec = ((uint32_t)rx[1] << 16) | ((uint32_t)rx[2] << 8) | rx[3];
     if (jedec != ((uint32_t)FL_JEDEX_MFR << 16 | FL_JEDEC_MEM_16M)) return false;
 
-    fl_header_t h;
-    fl_read_bytes(0, (uint8_t *)&h, sizeof h);
-    if (h.magic == LOG_MAGIC && h.version == LOG_VERSION) {
-        fl_count = h.records;
+    fl_read_bytes(0, (uint8_t *)&meta, sizeof meta);
+    if (meta.magic == LOG_MAGIC && meta.version == LOG_VERSION) {
+        fl_count = meta.records;
     } else {
+        memset(&meta, 0, sizeof meta);
         fl_count = 0;
         if (!fl_write_header()) return false;
     }
     fl_offset = FLASH_LOG_BASE + fl_count * sizeof(log_record_t);
+    meta_ckpt_offset = fl_offset;
     ok = true;
     return true;
 }
@@ -168,6 +173,14 @@ bool flashlog_append(const log_record_t *r) {
 
     if (page_len == 256) {
         if (!fl_program_page()) { ok = false; return false; }
+    }
+
+    // Checkpoint the header every 256 KB so a power loss mid-flight costs at
+    // most ~7k records of the count, never the whole index. The 45 ms sector
+    // erase blocks this core briefly; the log queue rides it out.
+    if (fl_offset - meta_ckpt_offset >= META_CKPT_BYTES) {
+        meta_ckpt_offset = fl_offset;
+        if (!fl_write_header()) { ok = false; return false; }
     }
     return true;
 }

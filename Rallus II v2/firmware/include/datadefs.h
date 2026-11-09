@@ -38,6 +38,22 @@ typedef struct __attribute__((packed)) {
 
 _Static_assert(sizeof(log_record_t) == 36, "log record must be 36 bytes");
 
+// Flash header (sector 0), 24 bytes. Written at arming (bias + gains),
+// checkpointed during flight, finalized after landing. Everything needed
+// to reconstruct what the controller knew, even after a hard crash.
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t records;
+    int16_t  bias_gx10, bias_gy10, bias_gz10;  // gyro bias at arm, dps*10
+    uint16_t kp_x10000, ki_x10000;             // gains that flew
+    uint16_t meta_flags;                       // bit0: bias valid
+} log_meta_t;
+
+_Static_assert(sizeof(log_meta_t) == 24, "log meta must be 24 bytes");
+
+#define LOG_META_BIAS_VALID (1u << 0)
+
 // Latest baro sample, produced on core 1.
 typedef struct {
     uint32_t d1, d2;      // raw counts

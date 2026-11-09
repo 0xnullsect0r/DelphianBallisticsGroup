@@ -49,6 +49,12 @@ bool ctrl_bias_commit(void) {
 
 bool ctrl_bias_valid(void) { return bias_valid; }
 
+void ctrl_get_bias(float *gx, float *gy, float *gz) {
+    *gx = bias[0];
+    *gy = bias[1];
+    *gz = bias[2];
+}
+
 float ctrl_v_hat(void) { return v_hat; }
 
 // Deflection ceiling vs airspeed: full travel low and slow, tapering to a

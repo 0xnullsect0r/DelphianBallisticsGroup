@@ -5,6 +5,7 @@
 #include "ms5611.h"
 #include "servos.h"
 #include "shared.h"
+#include "main.h"
 #include "pico/bootrom.h"
 #include "pico/stdlib.h"
 #include <stdio.h>
@@ -53,6 +54,13 @@ static void print_status(void) {
            (unsigned long)logq_dropped(),
            flashlog_ok() ? "ok" : "ERR",
            ms5611_prom_crc_ok() ? "ok" : "bad");
+    log_meta_t m;
+    flashlog_get_meta(&m);
+    printf("meta v%lu: bias=(%.1f,%.1f,%.1f)dps kp=%.4f ki=%.4f cal=%s\n",
+           (unsigned long)m.version,
+           m.bias_gx10 * 0.1f, m.bias_gy10 * 0.1f, m.bias_gz10 * 0.1f,
+           m.kp_x10000 * 0.0001f, m.ki_x10000 * 0.0001f,
+           (m.meta_flags & LOG_META_BIAS_VALID) ? "ok" : "no");
 }
 
 static void bench_sweep(void) {
@@ -76,9 +84,14 @@ static void cmd_dump(void) {
     uint32_t n = flashlog_count();
     printf("!DUMP %lu\n", (unsigned long)n);
 
-    uint32_t hdr[3] = { LOG_MAGIC, LOG_VERSION, n };
-    fwrite(hdr, 4, 3, stdout);
-    uint32_t crc = crc32_update(0, (const uint8_t *)hdr, 12);
+    // Full 24-byte meta header, same struct the ground tool decodes.
+    log_meta_t m;
+    flashlog_get_meta(&m);
+    m.magic = LOG_MAGIC;
+    m.version = LOG_VERSION;
+    m.records = n;
+    fwrite(&m, sizeof m, 1, stdout);
+    uint32_t crc = crc32_update(0, (const uint8_t *)&m, sizeof m);
 
     log_record_t rec;
     for (uint32_t i = 0; i < n; i++) {
@@ -135,7 +148,7 @@ void usb_cli_poll(uint32_t now_ms) {
         else printf("erase FAILED\n");
         break;
     case 'f':
-        flashlog_finalize();
+        avionics_finalize_log();
         printf("finalized at %lu records\n", (unsigned long)flashlog_count());
         break;
     case 'b': printf("vbatt %u mV\n", g_sys.vbat_mv); break;

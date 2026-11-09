@@ -16,3 +16,4 @@ bool  ctrl_bias_valid(void);
 
 int16_t ctrl_step(flight_state_t st, const imu_sample_t *raw, uint32_t t_ms);
 float   ctrl_v_hat(void);
+void    ctrl_get_bias(float *gx, float *gy, float *gz);

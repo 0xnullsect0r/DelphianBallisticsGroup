@@ -21,6 +21,11 @@ RECORD_FMT = "<Ihhh hhhiIIhHBBH"
 RECORD_LEN = struct.calcsize(RECORD_FMT)
 assert RECORD_LEN == 36, RECORD_LEN
 
+# 24-byte flash header (log_meta_t), sent before the records.
+META_FMT = "<IIIhhhHHH"
+META_LEN = struct.calcsize(META_FMT)
+assert META_LEN == 24, META_LEN
+
 STATE_NAMES = ["PADIDLE", "ARMED", "BOOST", "COAST", "APOGEE", "DESCENT", "LANDED"]
 
 FLAG_NAMES = [
@@ -84,12 +89,13 @@ def dump(ser):
         if line.startswith("!"):
             sys.exit(f"board refused: {line}")
 
-    hdr = read_exact(ser, 12)
-    magic, version, count = struct.unpack("<III", hdr)
+    raw_meta = read_exact(ser, META_LEN)
+    (magic, version, count,
+     bgx, bgy, bgz, kp, ki, mflags) = struct.unpack(META_FMT, raw_meta)
     if magic != 0x314E5641 or count != n:
         sys.exit(f"bad dump header: magic={magic:#x} version={version} count={count} n={n}")
 
-    crc = zlib.crc32(hdr)
+    crc = zlib.crc32(raw_meta)
     records = []
     for _ in range(n):
         raw = read_exact(ser, RECORD_LEN)
@@ -100,7 +106,15 @@ def dump(ser):
     (board_crc,) = struct.unpack("<I", trailer)
     if crc != board_crc:
         sys.exit(f"CRC mismatch: computed {crc:08x}, board sent {board_crc:08x}")
-    return records
+
+    meta = {
+        "format_version": version,
+        "bias_dps": (bgx / 10, bgy / 10, bgz / 10),
+        "kp": kp / 10000,
+        "ki": ki / 10000,
+        "bias_valid": bool(mflags & 1),
+    }
+    return meta, records
 
 
 def main():
@@ -114,8 +128,10 @@ def main():
 
     ser = open_port(args.port)
     print(f"connected, dumping...")
-    records = dump(ser)
+    meta, records = dump(ser)
     print(f"got {len(records)} records, CRC ok")
+    print(f"flight meta: bias={meta['bias_dps']} dps (valid={meta['bias_valid']}), "
+          f"kp={meta['kp']}, ki={meta['ki']}")
 
     fields = ["t_ms", "ax_mg", "ay_mg", "az_mg", "gx_dps", "gy_dps", "gz_dps",
               "v_mps", "d1", "d2", "delta_deg", "batt_v", "state", "flags"]
@@ -125,6 +141,8 @@ def main():
 
     with open(args.out, "w", newline="") as f:
         w = csv.writer(f)
+        w.writerow([f"# bias_dps={meta['bias_dps']} valid={meta['bias_valid']}",
+                    f"kp={meta['kp']}", f"ki={meta['ki']}"])
         w.writerow(fields)
         for (t, ax, ay, az, gx, gy, gz, v_cms, d1, d2, d_cdeg,
              batt_mv, state, flags, _rsv) in records:

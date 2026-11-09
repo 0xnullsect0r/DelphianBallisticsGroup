@@ -7,6 +7,27 @@ void shared_init(void) {
     memset((void *)&g_sys, 0, sizeof g_sys);
     critical_section_init(&g_sys.baro_cs);
     critical_section_init(&g_sys.status_cs);
+    critical_section_init(&g_sys.meta_cs);
+}
+
+void request_log_meta(const log_meta_t *m) {
+    critical_section_enter_blocking(&g_sys.meta_cs);
+    g_sys.meta_req = *m;
+    g_sys.meta_seq++;
+    critical_section_exit(&g_sys.meta_cs);
+}
+
+bool take_log_meta(log_meta_t *out) {
+    static uint32_t seen;
+    bool fresh = false;
+    critical_section_enter_blocking(&g_sys.meta_cs);
+    if (g_sys.meta_seq != seen) {
+        seen = g_sys.meta_seq;
+        *out = g_sys.meta_req;
+        fresh = true;
+    }
+    critical_section_exit(&g_sys.meta_cs);
+    return fresh;
 }
 
 void publish_baro(uint32_t d1, uint32_t d2, float press_pa, float alt_m, uint32_t t_ms) {

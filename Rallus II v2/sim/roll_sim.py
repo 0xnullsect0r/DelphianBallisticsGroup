@@ -25,8 +25,8 @@ import random
 # ----------------------------------------------------------------------------
 # Vehicle / motor params, from Rallus Mk.II V1.ork + its sim data.
 # ----------------------------------------------------------------------------
-MASS_START = 4.25        # kg, loaded (ORK components incl. 0.2 kg avionics bay)
-MASS_END = 3.90          # kg, burnout (propellant ~0.35 kg)
+MASS_START = 4.56        # kg, loaded (stability.py component sum)
+MASS_END = 4.01          # kg, burnout
 BURN_TIME = 2.1          # s (1115 Ns / 530 N avg, CTI stand-in curve)
 THRUST_N = 530.0         # N average during burn (custom propellant stand-in)
 CD = 0.5                 # backs out ~263 m/s burnout vs ORK sim
@@ -34,11 +34,13 @@ AREA = math.pi * 0.0254 ** 2   # m^2, 2 in body
 RHO = 1.225              # kg/m^3, sea level
 G = 9.81
 
-IXX = 0.0015             # kg m^2 roll inertia. TODO-ORK2: refine
+IXX = 0.0031             # kg m^2 roll inertia (stability.py estimate)
 
-FIN_AREA = 0.0002        # m^2 per canard (20 mm chord x 10 mm span freeform)
-FIN_CN_ALPHA = 2.0       # normal force slope per rad, low-AR canard
-FIN_ARM = 0.030          # m, canard CP radius from roll axis
+# Canards: 35 mm root / 15.4 mm tip / 28 mm span, 35 deg LE sweep, 1.5 mm
+# brass (geometry in V2.ork; sizing rationale from stability.py sweep).
+FIN_AREA = 0.000706      # m^2 per canard
+FIN_CN_ALPHA = 2.5       # normal force slope per rad, AR 2.2 canard
+FIN_ARM = 0.0394         # m, canard CP radius from roll axis
 N_FINS_ROLL = 4          # all four canards contribute to roll differentially
 
 MISALIGN_DEG = 0.3       # effective fin cant, disturbance torque scales with Q
@@ -208,6 +210,6 @@ if __name__ == "__main__":
     else:
         random.seed(42)
         s = simulate(plot=args.plot)
-        print("Rallus II roll sim (numbers from V1.ork, IXX still an estimate)")
+        print("Rallus II roll sim (V2.ork geometry, IXX a stability.py estimate)")
         for k, v in s.items():
             print(f"  {k:22s} {v:8.1f}")

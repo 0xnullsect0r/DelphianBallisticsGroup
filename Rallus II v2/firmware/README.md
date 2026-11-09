@@ -102,19 +102,39 @@ f  finalize header b  battery         x  BOOTSEL reboot
 
 ## Flight log
 
-36-byte records at 250 Hz to external W25Q128 (boot flash is never touched).
-Dump and decode:
+36-byte records to external W25Q128 (boot flash is never touched), at
+phase-aware rates:
+
+| Phase | Rate | Why |
+|---|---|---|
+| PADIDLE | 10 Hz | boot/pad context |
+| ARMED | 50 Hz | bias cal, pad conditions |
+| BOOST / COAST / APOGEE | **1 kHz** | every IMU sample and servo command the controller saw |
+| DESCENT, first 30 s | 1 kHz | separation event + chute opening |
+| DESCENT, after | 100 Hz | ride down |
+| LANDED | +10 s, then stop | touchdown capture |
+
+Worst-case full mission ~3.5 MB of the 16 MB chip. The flash header (24 B,
+sector 0) stores the flight context: gyro bias at arming, control gains,
+cal status. It is written at arming, checkpointed every 256 KB during
+flight (a power loss costs at most ~7k records of the index, never the
+data), and finalized after landing or via `f`.
+
+Dump and decode (header meta prints to the terminal and lands in the CSV
+as a comment row):
 
 ```
 sudo pacman -S python-pyserial
 python3 tools/dump_log.py -o flight.csv
-# with the board's MS5611 PROM C1..C6 (printed at bring-up via 's' once
-# implemented there, or read from the datasheet calibration) for pressure
+# with the board's MS5611 PROM C1..C6 for independent pressure
 # recompensation:
 python3 tools/dump_log.py -o flight.csv --prom 46472 43953 28912 27150 32767 28673
 ```
 
-Record layout (`datadefs.h`, little endian):
+**Always dump after a flight before erasing or flying again** — a fresh
+flight overwrites from the start of flash.
+
+Record layout (`datadefs.h`, little endian, 36 B):
 
 ```
 u32 t_ms | i16 ax,ay,az mg | i16 gx,gy,gz dps*10 | i32 v_hat cm/s |

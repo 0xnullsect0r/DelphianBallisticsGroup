@@ -35,13 +35,18 @@
 #define PIN_LED         25
 
 // ---------------------------------------------------------------------------
-// Rates. Control ISR at 1 kHz (IMU ODR 1 kHz, no averaging aliasing games),
-// log every 4th cycle = 250 Hz.
+// Rates. Control ISR at 1 kHz (IMU ODR 1 kHz, no averaging aliasing games).
+// Log rate is phase aware: every control cycle during flight and for 30 s
+// into descent (separation + chute events), then 100 Hz, low rates on pad.
+// Full flight budget: ~3.5 MB of the 16 MB chip.
 // ---------------------------------------------------------------------------
 #define CTRL_HZ         1000
 #define CTRL_DT         (1.0f / CTRL_HZ)
 #define CTRL_PERIOD_MS  1
-#define LOG_DIV         4
+#define LOG_HZ_PAD      10
+#define LOG_HZ_ARMED    50
+#define LOG_HZ_DESCENT  100
+#define LOG_DESCENT_HIRATE_MS 30000
 
 // ---------------------------------------------------------------------------
 // Flight state thresholds. Counters are derived from the millisecond values.
@@ -99,6 +104,6 @@
 // Flash log
 // ---------------------------------------------------------------------------
 #define LOG_MAGIC           0x314E5641u  // "AVN1" little endian
-#define LOG_VERSION         1u
+#define LOG_VERSION         2u           // v2: flash header carries flight meta
 #define FLASH_LOG_BASE      0x00001000u // sector 0 is reserved for the header
 #define FLASH_SIZE_BYTES    (16u * 1024u * 1024u)

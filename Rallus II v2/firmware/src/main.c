@@ -4,6 +4,7 @@
 #include "flashlog.h"
 #include "imu.h"
 #include "logbuf.h"
+#include "main.h"
 #include "ms5611.h"
 #include "servos.h"
 #include "shared.h"
@@ -21,6 +22,8 @@ static repeating_timer_t ctrl_timer;
 static uint32_t imu_err_streak;
 static uint16_t flags_core0;
 static uint32_t log_div_cnt;
+static flight_state_t log_last_st = ST_PADIDLE;
+static uint32_t descent_entry_ms;
 
 static uint16_t read_vbat(void) {
     adc_select_input(0);
@@ -41,6 +44,27 @@ static void led_update(uint32_t now_ms) {
     default:         on = true; break;                             // flight: solid
     }
     gpio_put(PIN_LED, on);
+}
+
+// Snapshot what the controller knows into the flash header: gyro bias,
+// gains, cal status. Called on every entry into ARMED; handed to core 1 via
+// the shared section, which owns all flash access.
+void avionics_log_meta_update(void) {
+    log_meta_t m;
+    memset(&m, 0, sizeof m);
+    float bx, by, bz;
+    ctrl_get_bias(&bx, &by, &bz);
+    m.bias_gx10 = (int16_t)(bx * 10.0f);
+    m.bias_gy10 = (int16_t)(by * 10.0f);
+    m.bias_gz10 = (int16_t)(bz * 10.0f);
+    m.kp_x10000 = (uint16_t)(ROLL_KP * 10000.0f);
+    m.ki_x10000 = (uint16_t)(ROLL_KI * 10000.0f);
+    m.meta_flags = ctrl_bias_valid() ? LOG_META_BIAS_VALID : 0;
+    request_log_meta(&m);
+}
+
+void avionics_finalize_log(void) {
+    flashlog_finalize();
 }
 
 // ---------------------------------------------------------------------------
@@ -78,8 +102,11 @@ static void core1_main(void) {
             last_flush = now;
             flashlog_flush();
         }
+        log_meta_t meta_req;
+        if (take_log_meta(&meta_req))
+            flashlog_set_meta(&meta_req);
         if (g_sys.log_hold && !finalized) {
-            flashlog_finalize();
+            avionics_finalize_log();
             finalized = true;
         }
 
@@ -88,10 +115,26 @@ static void core1_main(void) {
     }
 }
 
+// Phase-aware log divider: every control cycle (1 kHz) through flight and
+// the first 30 s of descent (separation + chute events), 100 Hz for the rest
+// of descent, 50 Hz armed on the pad, 10 Hz idle. Full mission ~3.5 MB.
+static uint32_t log_divider(flight_state_t st, uint32_t now) {
+    switch (st) {
+    case ST_PADIDLE: return CTRL_HZ / LOG_HZ_PAD;
+    case ST_ARMED:   return CTRL_HZ / LOG_HZ_ARMED;
+    case ST_BOOST:
+    case ST_COAST:
+    case ST_APOGEE:  return 1;
+    default:         // DESCENT, LANDED
+        return (now - descent_entry_ms < LOG_DESCENT_HIRATE_MS)
+             ? 1 : CTRL_HZ / LOG_HZ_DESCENT;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Core 0 control tick at 1 kHz. Reads the IMU, runs the state machine and
-// the roll controller, drives the servos, queues a log record every 4th tick.
-// This ISR is the only place the watchdog is fed.
+// the roll controller, drives the servos, queues log records at the
+// phase-aware rate. This ISR is the only place the watchdog is fed.
 // ---------------------------------------------------------------------------
 static bool ctrl_tick(repeating_timer_t *rt) {
     (void)rt;
@@ -107,6 +150,13 @@ static bool ctrl_tick(repeating_timer_t *rt) {
     flight_state_t st = state_step(&s, now);
     int16_t delta_cdeg = ctrl_step(st, &s, now);
 
+    if (st != log_last_st) {
+        if (st == ST_DESCENT) descent_entry_ms = now;
+        if (st == ST_ARMED)   avionics_log_meta_update();
+        log_last_st = st;
+        log_div_cnt = 0;
+    }
+
     uint16_t flags = flags_core0 | g_sys.faults_core1;
     if (logq_dropped())                  flags |= FF_LOGQ_DROP;
     if (imu_err_streak > 200)            flags |= FF_IMU_ERR;
@@ -115,7 +165,7 @@ static bool ctrl_tick(repeating_timer_t *rt) {
     if (ctrl_bias_valid())               flags |= FF_CAL;
 
     if (!g_sys.log_hold) {
-        if (++log_div_cnt >= LOG_DIV) {
+        if (++log_div_cnt >= log_divider(st, now)) {
             log_div_cnt = 0;
             baro_shared_t b;
             read_baro(&b);

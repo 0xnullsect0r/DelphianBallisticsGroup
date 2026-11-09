@@ -12,7 +12,8 @@
 | Slide switch + RBF pin/jack | 1 set | 5 | Arm interlock, in series |
 | 1000uF electrolytic, decoupling caps, headers, wire | - | 5 | |
 | Resistor divider (10k/2k) for battery sense | 1 | 0.5 | 2S -> ADC |
-| Brass sheet 1mm (canard stock) | 1 | 8 | Matches ORK V2 canard geometry, 20x10mm freeform |
+| Brass sheet 1.5mm (canard stock) | 1 | 10 | 4x canards, 35/15.4/28 mm trapezoid per V2.ork |
+| Steel sheet 1.5mm (if recutting booster fins) | 1 | 15 | Booster fins grew to 65 mm span; skip if fins already cut at 50 mm and we re-run numbers instead |
 | 3mm CF or fiberglass rod (canard shafts) | 4 | 8 | Cut to length after fin can design |
 | PETG or CF-nylon filament | - | have? | Fin can + sled prints |
 | Commercial altimeter (existing?) | 1 | 0-60 | Fires chutes + explosive bolts. Not this board's job |
