@@ -192,21 +192,68 @@ and did (`tools/dump_log.py` -> CSV with meta).
 
 ## Sim handoff — run these, bring back the numbers
 
-In OpenRocket 24.12, open `openrocket/Rallus Mk.II V2.ork`:
+`openrocket/Rallus Mk.II V2.ork` carries three ready simulations (Flight
+simulations tab, "Run simulations" runs all three): **Calm (0.5 m/s)**,
+**Crosswind 2 m/s**, **Crosswind 5 m/s gusty**. All use the CTI 1115J530
+stand-in motor, 3 m rail, 0.01 s timestep, launch-into-wind.
 
-1. Let it finish analyzing; screenshot or transcribe the warnings panel.
-2. Run the existing simulation. Report:
-   - apogee, max velocity, max Mach, max acceleration, time to apogee
-   - velocity off the rail
-   - landing speed of each stage (separation event view)
-3. Stability: the rocket info panel shows CG/CP and margin. Report margin
-   at loaded and burnout mass. If you can plot the sim, also report margin
-   and Mach at burnout time (the transonic worst case).
-4. Compare against my estimates: margin 2.35/2.70 cal (loaded/burnout),
-   ~1.84 cal at M0.78. If OR disagrees by more than ~0.5 cal or shows
-   margin < 1.5 cal anywhere, stop and we rebalance canard/fin sizes.
-5. If the real EX thrust curve differs from the J530, add it as a custom
-   motor and rerun; bring the same numbers.
+Manual checks before running:
+
+1. **Motor**: if the sim warns the motor can not be found (database digest),
+   reselect Cesaroni 1115J530-15A on the booster motor mount, or the closest
+   J (~1100 Ns) and note which.
+2. **Launch site**: inherited conditions say Cape Canaveral, 0 m MSL. Set
+   your real field elevation/coordinates in each sim's launch site tab, or
+   say so and results get read as sea level.
+
+Numbers to bring back (per sim, Calm + Crosswind 2 m/s at minimum):
+
+- apogee, max velocity, max Mach, max acceleration, time to apogee
+- velocity at launch rod clearance (events list or exported CSV)
+- landing/deployment velocities per stage (two ground hits, two deployments)
+- any warnings (yellow icon -> read them out)
+- stability margin in calibers, loaded and burnout (main window CG/CP readout,
+  toggle motor config)
+- best: full CSV export per sim (plot dialog -> Table tab -> export). With
+  "Center of pressure" and "CG location" curves added to the plot, the CSV
+  carries margin vs time; I take it from there.
+
+## Sim results, round 1 (2026-11-09, three runs x two stage branches)
+
+| Metric | Estimate | OpenRocket | Verdict |
+|---|---|---|---|
+| Apogee | ~2400-2500 m | 2236-2249 m | ok (V2 is draggier than V1) |
+| Max velocity / Mach | 263 / M0.78 | 246.4 / **M0.73** | ok |
+| Max acceleration | 19.3 g | 18.2 g | ok (32 g IMU still right) |
+| Off rail (3 m) | ~34 m/s | **32.5 m/s @ 0.20 s** | ok, well above 20 |
+| Margin at burnout | 2.70 cal | **2.45 cal** (M0.72) | pass |
+| Margin min during boost | est 1.84 worst | **1.89 cal at rail exit** | PASS, never below 1.5 |
+| Roll inertia at burnout | est 0.0031 | **0.0020 kg·m²** | authority ~1.5x better than estimated |
+| Margin after separation | - | nonsense (-7 cal, AoA >100 deg) | expected, Barrowman invalid post-split |
+
+Findings and actions taken from round 1:
+
+1. **Deployment at 20.8 m/s** (the warning you saw): apogee+2 s is too late.
+   Both chute delays set to 1.0 s in the ORK -> deploys at ~11 m/s. Real
+   config: altimeter fires the bolts at apogee detect, 1 s is inflation lag.
+2. **Upper half lands at 11-12 m/s** on a 24 in chute: nose-section chute
+   grown to 30 in, same as the booster (both halves now ~8-9 m/s, and you
+   only stock one chute size).
+3. **Motor ejection at t=8.1 s (246 m/s, near max Q)** appeared in the sim
+   from the stand-in motor's 6 s delay. OPERATIONAL RULE: the real EX motor
+   must be **plugged / no ejection charge**. An ejection event at max Q would
+   fire the mid-break at the worst possible moment. Altimeter + bolts are the
+   only deployment path. (ORK motor delay set to 600 s so the event stops
+   appearing in sims.)
+
+After these edits: re-run the three sims; expect deploy ~11 m/s, both ground
+hits ~8-9 m/s, everything else unchanged. `sim/analyze_flight.py` digests the
+exports (`python3 sim/analyze_flight.py ../something*.csv`).
+
+`sim/roll_sim.py` now carries OR-measured numbers (Ixx 0.0020, mass 4.29,
+CD calibrated to 246 m/s burnout). Current gains: worst roll ~40 deg/s in
+boost, -4 deg/s at 10 s. Sweep suggests Ki 0.05 settles faster; leaving
+0.15/0.02 as the flight-one starting point.
 
 ## Risks
 
