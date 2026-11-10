@@ -5,6 +5,41 @@ canard servo bay. All dimensions live in `dimensions.scad`; **verify every
 line marked VERIFY against your actual parts before printing** (servo hole
 pitch, Session cube, battery, Pico standoffs, GY breakout boards).
 
+## Slide-in avionics mount (PRIMARY electronics carrier)
+
+`avionics_slide_mount.py` (build123d, exports in `models/`) supersedes
+`avionics_sled.scad` as the electronics carrier. Two printed parts:
+
+- **avionics_blade** — 44 x 4 x 132 mm diametral blade. Pico 2 on standoffs
+  (USB forward, +Y face), MS5611 + W25Q128 trays and a short MAX31855 tray
+  (-Y face), battery pass-through window (pack strapped across the blade
+  with velcro through the flanking slots), BEC zip posts and the RFB jack
+  tab (+Y face aft), switch bracket (knob pokes -X through the tube slot),
+  TC wire hooks, shock-cord hole at the aft end.
+- **retention_ring** — clamps the blade via a key slot (1 M3 radial screw)
+  and locks in the tube with 3 radial M3 screws at 0/120/240 deg.
+
+Assembly: wire everything on the bench -> drop the blade in radially at the
+sled bay -> rotate vertical -> slide forward until it seats on the camera
+cage -> ring onto the blade aft end, key slot up -> tighten 3 wall screws +
+1 blade screw -> shock cord through the blade's aft hole, knot forward.
+Hardware: 4x M2.5x8 (Pico), 4x M3x6 (ring), velcro strap, 2-pin JST at the
+nose shoulder (thermocouple).
+
+Tube stations (drill template updated to match): switch slot 196.5 mm,
+RFB jack 198 mm, vent 130 mm, window 60 mm, canard shafts 12 mm.
+
+Print: PETG minimum, CF-nylon preferred for the ring; blade +Y face up
+as exported; ring flat as exported; no supports needed (bridges < 10 mm).
+
+Print settings and material profiles are EMBEDDED in the Bambu project
+files: `models/avionics_blade_bambu.3mf` (PETG, 250/70) and
+`models/retention_ring_bambu.3mf` (PA-CF, 280/70) — layer 0.2, 4 walls,
+30/35 % grid infill. Open in Bambu Studio, answer the load-project dialog
+with "apply all settings", pick your printer. PA-CF needs a hardened
+nozzle and dry filament; switch the ring to PETG temps if you print it in
+PETG. `models/all_parts.3mf` stays a plain plate (no settings).
+
 ## Assembly order (top of upper tube down)
 
 | Station | Part | Contents |

@@ -19,7 +19,8 @@
 | 3mm CF or fiberglass rod (canard shafts) | 4 | 8 | Cut to length after fin can design |
 | GoPro HERO5 Session | 1 | owned | Used market ~$40-60 if needed; 37mm cube, verify vs dimensions.scad |
 | Clear packaging tape | 1 | have? | 2 fresh layers over the camera window per flight |
-| Foam sheet, 1.5mm + M2/M3 hardware, velcro strap | - | 5 | Camera shock mount, sled assembly |
+| Foam sheet, 1.5mm + velcro strap | - | 3 | Camera shock mount, battery strap |
+| M2.5x8 screws (4) + M3x6 screws (4) | 1 set | 2 | Pico standoffs + retention ring clamp |
 | PETG or CF-nylon filament | - | have? | Servo ring (CF-nylon preferred), cage, sled, templates |
 | Commercial altimeter (existing?) | 1 | 0-60 | Fires chutes + explosive bolts. Not this board's job |
 | Drill bits: 3.2, 6mm + needle files | - | have? | Vent, RFB, shafts, window filing |
