@@ -89,9 +89,9 @@ RING_NOTES = (
     "Flat as oriented, no supports. For PETG use 250/70 instead."
 )
 NOSE_NOTES = (
-    "Rallus printed nose cone. PETG or ASA. Print TIP DOWN as oriented, "
-    "no supports. Fill cavity with lead shot + epoxy to ~285 g (assembled "
-    "~360 g), then glue the base plug in. Shock cord through the base bore."
+    "Rallus nose piece (split cone; X1C beds are 256 mm, the full cone is "
+    "299 mm). PETG or ASA, pointy end down, no supports. Glue base + tip "
+    "at the sleeve joint (epoxy, 0.25 mm glue gap) BEFORE ballasting."
 )
 PLATE_NOTES = (
     "Rallus full part set: nose cone, avionics blade, retention ring, "
@@ -226,12 +226,14 @@ def main():
             "avionics_blade", BLADE_PETG, BLADE_NOTES)
     convert(HERE / "retention_ring.3mf", HERE / "retention_ring_bambu.3mf",
             "retention_ring", RING_PACF, RING_NOTES)
-    convert(HERE / "nosecone.3mf", HERE / "nosecone_bambu.3mf",
-            "nosecone", NOSE_PETG, NOSE_NOTES)
+    convert(HERE / "nose_base.3mf", HERE / "nose_base_bambu.3mf",
+            "nose_base", NOSE_PETG, NOSE_NOTES)
+    convert(HERE / "nose_tip.3mf", HERE / "nose_tip_bambu.3mf",
+            "nose_tip", NOSE_PETG, NOSE_NOTES)
     plate = HERE / "all_parts.3mf"
     if plate.exists():
         convert(plate, HERE / "rallus_plate_bambu.3mf",
-                "rallus_v4_all_parts", NOSE_PETG, PLATE_NOTES)
+                "rallus_v4_all_parts", BLADE_PETG, PLATE_NOTES)
 
 
 if __name__ == "__main__":

@@ -26,6 +26,18 @@ margins (tune fill height, verify on a scale), then glue the base plug
 
 The cone profile matches the ORK nose exactly, so V3 sims carry over.
 
+SPLIT (256 mm bed limit): the full cone is 299 mm, so it prints as TWO
+pieces - nose_base (157 mm, with spigot/pins/cavity) and nose_tip (167 mm,
+with a conical sleeve) - glued at the 0.25 mm-clearance sleeve joint with
+epoxy BEFORE ballasting. Both print pointy-end-down, no supports.
+
+Print files (`models/`): `rallus_plate_bambu.3mf` = all five parts on one
+plate (PETG settings); per-part Bambu projects with the right material per
+part: `nose_base_bambu`, `nose_tip_bambu` (PETG), `avionics_blade_bambu`
+(PETG), `retention_ring_bambu` (PA-CF, hardened nozzle). Project settings
+mirror a real Bambu-saved 3MF (Application + BambuStudio:3mfVersion
+metadata, model_settings.config object/plate schema, slice_info header).
+
 ## Slide-in avionics mount (PRIMARY electronics carrier)
 
 `avionics_slide_mount.py` (build123d, exports in `models/`) supersedes
