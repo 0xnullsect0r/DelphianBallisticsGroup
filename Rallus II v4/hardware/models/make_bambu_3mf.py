@@ -1,30 +1,34 @@
 #!/usr/bin/env python3
 """Convert plain 3MF exports into Bambu Studio project 3MFs.
 
-Bambu Studio (and Orca) store slicer settings inside the 3MF zip:
-  3D/3dmodel.model                  geometry (patched: Application/Title/
-                                    Description metadata so Bambu treats the
-                                    file as its own project and keeps the
-                                    settings instead of discarding them)
-  Metadata/project_settings.config  flat JSON object of resolved settings
-  Metadata/model_settings.config    XML with object/plate naming
+Structure mirrors a real Bambu Studio 02.07 saved project (verified against
+a known-good reference file):
+
+  3D/3dmodel.model           geometry, patched with the BambuStudio
+                             namespace + metadata block (Application,
+                             BambuStudio:3mfVersion, Title, Description...)
+  Metadata/project_settings.config   flat JSON of slicer settings
+  Metadata/model_settings.config     XML: per-object entries (name, extruder,
+                             face_count, part w/ matrix + mesh_stat) and the
+                             plate block with model_instance list
+  Metadata/slice_info.config         minimal X-BBL client header
 
 Usage:
-    python3 make_bambu_3mf.py            # builds both project files
+    python3 make_bambu_3mf.py            # all *_bambu.3mf files
 """
 
 import json
 import re
-import shutil
 import zipfile
+from datetime import date
 from pathlib import Path
 
 HERE = Path(__file__).parent
-APP = "BambuStudio-01.10.00.89"      # identity; makes settings load
+APP = "BambuStudio-02.07.01.62"
+TODAY = date.today().isoformat()
 
 # ---------------------------------------------------------------- profiles
 BLADE_PETG = {
-    # process
     "layer_height": "0.2",
     "initial_layer_print_height": "0.2",
     "wall_loops": "4",
@@ -38,7 +42,6 @@ BLADE_PETG = {
     "travel_speed": "250",
     "enable_support": "false",
     "nozzle_diameter": ["0.4"],
-    # filament (arrays are per-slot)
     "filament_type": ["PETG"],
     "filament_diameter": ["1.75"],
     "filament_colour": ["#00A651"],
@@ -51,138 +54,171 @@ BLADE_PETG = {
     "filament_settings_id": "rallus-v3-petg",
 }
 
-RING_PACF = {
-    "layer_height": "0.2",
-    "initial_layer_print_height": "0.2",
-    "wall_loops": "4",
-    "top_shell_layers": "5",
-    "bottom_shell_layers": "4",
+RING_PACF = dict(BLADE_PETG, **{
     "sparse_infill_density": "35%",
-    "sparse_infill_pattern": "grid",
     "outer_wall_speed": "40",
     "inner_wall_speed": "80",
     "sparse_infill_speed": "100",
     "travel_speed": "200",
-    "enable_support": "false",
-    "nozzle_diameter": ["0.4"],
     "filament_type": ["PA-CF"],
-    "filament_diameter": ["1.75"],
     "filament_colour": ["#3B3B3B"],
-    "filament_flow_ratio": ["0.98"],
     "filament_max_volumetric_speed": ["6"],
     "nozzle_temperature": ["280"],
     "nozzle_temperature_initial_layer": ["280"],
-    "bed_temperature": ["70"],
     "print_settings_id": "rallus-v3-ring",
     "filament_settings_id": "rallus-v3-pacf",
-}
+})
 
-NOSE_PETG = {
-    "layer_height": "0.2",
-    "initial_layer_print_height": "0.2",
-    "wall_loops": "4",
-    "top_shell_layers": "5",
-    "bottom_shell_layers": "4",
+NOSE_PETG = dict(BLADE_PETG, **{
     "sparse_infill_density": "10%",
-    "sparse_infill_pattern": "grid",
     "outer_wall_speed": "50",
     "inner_wall_speed": "100",
     "sparse_infill_speed": "120",
-    "travel_speed": "250",
-    "enable_support": "false",
-    "nozzle_diameter": ["0.4"],
-    "filament_type": ["PETG"],
-    "filament_diameter": ["1.75"],
     "filament_colour": ["#FFFFFF"],
-    "filament_flow_ratio": ["0.98"],
-    "filament_max_volumetric_speed": ["8"],
-    "nozzle_temperature": ["250"],
-    "nozzle_temperature_initial_layer": ["250"],
-    "bed_temperature": ["70"],
     "print_settings_id": "rallus-v4-nose",
-    "filament_settings_id": "rallus-v3-petg",
-}
-
-NOSE_NOTES = (
-    "Rallus II v4 printed nose cone. PETG or ASA. Print TIP DOWN as "
-    "oriented, no supports (5 deg cone overhang). AFTER printing: fill the "
-    "cavity with lead shot + epoxy through the base to ~285 g (assembled "
-    "nose target ~360 g to preserve CG/margins - verify on a scale), then "
-    "glue the base plug into the spigot bore. Shock cord through the base "
-    "bore."
-)
+})
 
 BLADE_NOTES = (
-    "Rallus II v3 avionics blade. PETG (CF-nylon also fine). "
-    "Print flat as oriented, no supports: all bridges are under 10 mm. "
-    "4 walls / 30% grid infill per embedded profile. "
-    "VERIFY dimensions in avionics_slide_mount.py against your parts "
-    "before committing plastic."
+    "Rallus avionics blade. PETG (CF-nylon also fine). Print flat as "
+    "oriented, no supports: bridges under 10 mm. 4 walls / 30% grid per "
+    "embedded profile. VERIFY dimensions against your parts first."
 )
-
 RING_NOTES = (
-    "Rallus II v3 retention ring. PA-CF / CF-nylon strongly recommended "
-    "(clamp screws bite into this part). Hardened steel nozzle REQUIRED "
-    "for CF filament. Dry the spool. Glue stick on smooth PEI. "
-    "Flat as oriented, no supports. If printing in PETG instead, "
-    "switch to the blade profile temperatures (250/70)."
+    "Rallus retention ring. PA-CF / CF-nylon strongly recommended; "
+    "hardened nozzle REQUIRED, dry the spool, glue stick on smooth PEI. "
+    "Flat as oriented, no supports. For PETG use 250/70 instead."
+)
+NOSE_NOTES = (
+    "Rallus printed nose cone. PETG or ASA. Print TIP DOWN as oriented, "
+    "no supports. Fill cavity with lead shot + epoxy to ~285 g (assembled "
+    "~360 g), then glue the base plug in. Shock cord through the base bore."
+)
+PLATE_NOTES = (
+    "Rallus full part set: nose cone, avionics blade, retention ring, "
+    "base plug. Settings embedded are the PETG set; print the retention "
+    "ring separately from retention_ring_bambu.3mf if you want PA-CF. "
+    "Nose tip-down, blade flat, ring flat."
 )
 
 
-def patch_model_xml(xml: str, title: str, desc: str) -> str:
+# ---------------------------------------------------------------- helpers
+def parse_objects(xml):
+    """[(id, name, face_count)] for every mesh object in a 3dmodel XML."""
+    out = []
+    for m in re.finditer(r'<object\s+id="(\d+)"[^>]*>(.*?)</object>', xml, re.S):
+        oid, body = m.group(1), m.group(2)
+        if "<mesh>" not in body:
+            continue
+        nm = re.search(r'partnumber="([^"]*)"', m.group(0))
+        faces = body.count("<triangle")
+        out.append((int(oid), nm.group(1) if nm else f"object_{oid}", faces))
+    return out
+
+
+def patch_model_xml(xml, title, desc):
     md = (
-        f'  <metadata name="Application">{APP}</metadata>\n'
-        f'  <metadata name="Title">{title}</metadata>\n'
-        f'  <metadata name="Designer">Delphian Ballistics Group</metadata>\n'
-        f'  <metadata name="Description">{desc}</metadata>\n'
+        f' <metadata name="Application">{APP}</metadata>\n'
+        ' <metadata name="BambuStudio:3mfVersion">1</metadata>\n'
+        ' <metadata name="Copyright"></metadata>\n'
+        f' <metadata name="CreationDate">{TODAY}</metadata>\n'
+        f' <metadata name="Description">{desc}</metadata>\n'
+        ' <metadata name="Designer">Delphian Ballistics Group</metadata>\n'
+        ' <metadata name="License"></metadata>\n'
+        f' <metadata name="ModificationDate">{TODAY}</metadata>\n'
+        ' <metadata name="Origin"></metadata>\n'
+        f' <metadata name="Title">{title}</metadata>\n'
     )
-    # Core 3MF: model-level metadata goes right after the <model> open tag.
+    if "BambuStudio:3mfVersion" in xml:
+        return xml
     m = re.search(r"<model[^>]*>", xml)
     assert m, "no <model> element"
-    if "Application" not in xml:
-        xml = xml[:m.end()] + "\n" + md + xml[m.end():]
-    return xml
+    tag = m.group(0)
+    if "xmlns:BambuStudio" not in tag:
+        xml = xml.replace(
+            tag, tag[:-1] +
+            ' xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">', 1)
+    m = re.search(r"<model[^>]*>", xml)
+    return xml[:m.end()] + "\n" + md + xml[m.end():]
 
 
-def model_settings(object_name: str) -> str:
-    return (
-        "<config>\n"
-        "  <plate>\n"
-        f'    <metadata key="name" value="{object_name}"/>\n'
-        '    <metadata key="extruder" value="1"/>\n'
-        "  </plate>\n"
-        "  <object>\n"
-        '    <metadata key="id" value="1"/>\n'
-        f'    <metadata key="name" value="{object_name}"/>\n'
-        '    <metadata key="extruder" value="1"/>\n'
-        "  </object>\n"
-        "</config>\n"
-    )
+def model_settings(objects, plate_name):
+    objs = []
+    for oid, name, faces in objects:
+        objs.append(
+            f'  <object id="{oid}">\n'
+            f'    <metadata key="name" value="{name}"/>\n'
+            '    <metadata key="extruder" value="1"/>\n'
+            f'    <metadata face_count="{faces}"/>\n'
+            '    <part id="1" subtype="normal_part">\n'
+            f'      <metadata key="name" value="{name}"/>\n'
+            '      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>\n'
+            f'      <metadata key="source_file" value="{name}.stl"/>\n'
+            '      <metadata key="source_object_id" value="0"/>\n'
+            '      <metadata key="source_volume_id" value="0"/>\n'
+            '      <metadata key="source_offset_x" value="0.000000"/>\n'
+            '      <metadata key="source_offset_y" value="0.000000"/>\n'
+            '      <metadata key="source_offset_z" value="0.000000"/>\n'
+            f'      <mesh_stat face_count="{faces}" edges_fixed="0" '
+            'degenerate_facets="0" facets_removed="0" facets_reversed="0" '
+            'backwards_edges="0"/>\n'
+            '    </part>\n'
+            '  </object>\n')
+    inst = "".join(
+        f'    <model_instance>\n'
+        f'      <metadata key="object_id" value="{oid}"/>\n'
+        f'      <metadata key="instance_id" value="0"/>\n'
+        f'      <metadata key="identify_id" value="{oid * 1000}"/>\n'
+        f'    </model_instance>\n'
+        for oid, _, _ in objects)
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n<config>\n' + "".join(objs) +
+            '  <plate>\n'
+            '    <metadata key="plater_id" value="1"/>\n'
+            f'    <metadata key="plater_name" value="{plate_name}"/>\n'
+            '    <metadata key="locked" value="false"/>\n'
+            '    <metadata key="filament_map_mode" value="Auto For Flush"/>\n'
+            + inst + '  </plate>\n</config>\n')
 
 
-def convert(src: Path, dst: Path, name: str, settings: dict, desc: str):
+SLICE_INFO = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<config>\n'
+    '  <header>\n'
+    '    <header_item key="X-BBL-Client-Type" value="slicer"/>\n'
+    f'    <header_item key="X-BBL-Client-Version" value="{APP.split("-")[1]}"/>\n'
+    '  </header>\n'
+    '</config>\n'
+)
+
+CONTENT_TYPES = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
+    ' <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n'
+    ' <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n'
+    ' <Default Extension="png" ContentType="image/png"/>\n'
+    ' <Default Extension="gcode" ContentType="text/x.gcode"/>\n'
+    '</Types>'
+)
+
+
+def convert(src: Path, dst: Path, plate_name: str, settings: dict, desc: str):
     with zipfile.ZipFile(src) as zin:
         members = {i.filename: zin.read(i.filename) for i in zin.infolist()}
 
     xml = members["3D/3dmodel.model"].decode()
-    members["3D/3dmodel.model"] = patch_model_xml(xml, name, desc).encode()
+    objects = parse_objects(xml)
+    assert objects, "no mesh objects found"
+    members["3D/3dmodel.model"] = patch_model_xml(xml, plate_name, desc).encode()
     members["Metadata/project_settings.config"] = \
-        json.dumps(settings, indent=1, sort_keys=True).encode()
+        json.dumps(settings, indent=4, sort_keys=True).encode()
     members["Metadata/model_settings.config"] = \
-        model_settings(name).encode()
-
-    # Make sure .config parts have a content type in the OPC manifest.
-    ct = members["[Content_Types].xml"].decode()
-    if 'Extension="config"' not in ct:
-        ct = ct.replace(
-            "</Types>",
-            '<Default Extension="config" ContentType="text/plain"/></Types>')
-        members["[Content_Types].xml"] = ct.encode()
+        model_settings(objects, plate_name).encode()
+    members["Metadata/slice_info.config"] = SLICE_INFO.encode()
+    members["[Content_Types].xml"] = CONTENT_TYPES.encode()
 
     with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
         for fn, data in members.items():
             zout.writestr(fn, data)
-    print(f"wrote {dst.name}")
+    print(f"wrote {dst.name}  objects: {[o[1] for o in objects]}")
 
 
 def main():
@@ -192,6 +228,10 @@ def main():
             "retention_ring", RING_PACF, RING_NOTES)
     convert(HERE / "nosecone.3mf", HERE / "nosecone_bambu.3mf",
             "nosecone", NOSE_PETG, NOSE_NOTES)
+    plate = HERE / "all_parts.3mf"
+    if plate.exists():
+        convert(plate, HERE / "rallus_plate_bambu.3mf",
+                "rallus_v4_all_parts", NOSE_PETG, PLATE_NOTES)
 
 
 if __name__ == "__main__":
