@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rallus II</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #10151c; color: #d8e0ea;
+         margin: 0; padding: 12px; }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+          gap: 12px; }
+  .card { background: #171f29; border-radius: 10px; padding: 10px; }
+  .card h2 { font-size: 13px; margin: 0 0 6px; color: #7fa8d0; font-weight: 600; }
+  canvas { width: 100%; height: 110px; }
+  .big { font-size: 34px; font-weight: 700; }
+  .row { display: flex; justify-content: space-between; font-size: 14px;
+         padding: 3px 0; border-bottom: 1px solid #232d3a; }
+  #events { font-family: ui-monospace, monospace; font-size: 12px; max-height: 180px;
+            overflow-y: auto; }
+  .ev-hi { color: #ff6b6b; font-weight: 700; }
+  .ok { color: #7ee08a; } .bad { color: #ff6b6b; }
+  #finder { font-size: 15px; }
+  #arrow { font-size: 40px; }
+</style>
+</head>
+<body>
+<h1>RALLUS II <span id="statename" class="big"></span></h1>
+<div class="grid">
+  <div class="card"><h2>Altitude <span id="alt" class="big"></span> m &nbsp;
+    max <span id="maxalt"></span> m</h2><canvas id="c_alt"></canvas></div>
+  <div class="card"><h2>Acceleration (mg)</h2><canvas id="c_acc"></canvas></div>
+  <div class="card"><h2>Roll rate (&deg;/s) &nbsp; canards <span id="delta"></span>&deg;</h2>
+    <canvas id="c_gyro"></canvas></div>
+  <div class="card"><h2>Status</h2>
+    <div class="row"><span>State</span><span id="st2"></span></div>
+    <div class="row"><span>Speed (v&#8747;)</span><span id="v"></span> m/s</div>
+    <div class="row"><span>Battery</span><span id="batt"></span></div>
+    <div class="row"><span>Nose temp</span><span id="tc"></span> &deg;C</div>
+    <div class="row"><span>Links</span>
+      <span id="links"></span></div>
+    <div class="row"><span>Bolt charge</span><span id="cont"></span></div>
+  </div>
+  <div class="card"><h2>GPS</h2>
+    <div class="row"><span>Position</span><span id="gps"></span></div>
+    <div class="row"><span>Sats / fix</span><span id="sats"></span></div>
+    <div class="row"><span>GPS alt</span><span id="gpsalt"></span></div>
+    <div id="finder">
+      <button onclick="useMyGps()">Find it from my position</button>
+      <span id="arrow"></span> <span id="bear"></span>
+    </div>
+  </div>
+  <div class="card"><h2>Events</h2><div id="events"></div></div>
+</div>
+<script>
+const H = 240;                       // seconds of history on screen
+const plots = {
+  alt:  {el: c_alt,  data: [], min: v => Math.min(0, v), max: v => v * 1.1},
+  acc:  {el: c_acc,  data: []},
+  gyro: {el: c_gyro, data: []},
+};
+let lastEvs = [];
+
+function draw(p, series, y0, y1, colors) {
+  const c = p.el, ctx = c.getContext("2d");
+  c.width = c.clientWidth; c.height = c.clientHeight;
+  ctx.clearRect(0, 0, c.width, c.height);
+  if (!series.length) return;
+  const xs = i => i / (series.length - 1) * c.width;
+  const ys = v => c.height - (v - y0) / (y1 - y0) * c.height;
+  series.forEach((s, k) => {
+    ctx.strokeStyle = colors[k]; ctx.lineWidth = 1.5; ctx.beginPath();
+    s.forEach((v, i) => i ? ctx.lineTo(xs(i), ys(v)) : ctx.moveTo(xs(i), ys(v)));
+    ctx.stroke();
+  });
+}
+
+function bounds(arrs) {
+  const flat = arrs.flat();
+  if (!flat.length) return [0, 1];
+  let lo = Math.min(...flat), hi = Math.max(...flat);
+  if (hi - lo < 1e-6) hi = lo + 1;
+  return [lo, hi * 1.05 === lo ? lo + 1 : hi * 1.05];
+}
+
+async function tick() {
+  try {
+    const s = await (await fetch("/api/latest")).json();
+    statename.textContent = ["PAD IDLE","ARMED","BOOST","COAST","APOGEE","DESCENT","LANDED"][s.st];
+    alt.textContent = Math.round(s.alt); maxalt.textContent = Math.round(s.max_alt);
+    v.textContent = s.v / 10; delta.textContent = s.d / 100;
+    batt.textContent = (s.b / 1000).toFixed(2) + " V";
+    batt.className = s.b > 7000 ? "ok" : "bad";
+    tc.textContent = s.tc === -32768 ? "FAULT" : (s.tc / 10).toFixed(1);
+    links.textContent =
+      ["PICO","GPS","LORA"].map((n, i) =>
+        `<span class="${[s.link.pico, s.link.gps, s.link.lora_tx>0][i] ? "ok" : "bad"}">${n}</span>`)
+      .join(" ");
+    const cont = s.e & 1;
+    cont.innerHTML = cont ? '<span class="ok">CONTINUITY OK</span>'
+                          : '<span class="bad">OPEN / NO CHARGE</span>';
+    st2.textContent = statename.textContent;
+    if (s.gps && s.gps.lat !== null) {
+      gps.textContent = s.gps.lat.toFixed(5) + ", " + s.gps.lon.toFixed(5);
+      sats.textContent = s.gps.sats + " / " + s.gps.fix;
+      gpsalt.textContent = Math.round(s.gps.alt_m) + " m";
+      window._rocketGps = s.gps;
+    }
+    plots.alt.data.push(s.alt);
+    plots.acc.data.push(s.a);
+    plots.gyro.data.push(s.g);
+    if (plots.alt.data.length > H * 2) { plots.alt.data.shift(); plots.acc.data.shift(); plots.gyro.data.shift(); }
+    const alts = plots.alt.data;
+    draw(plots.alt, [alts], Math.min(0, ...alts), Math.max(10, ...alts) * 1.08, ["#7fa8d0"]);
+    const A = plots.acc.data;
+    draw(plots.acc, [0,1,2].map(k => A.map(x => x[k])), ...bounds(A),
+         ["#ff6b6b","#7ee08a","#7fa8d0"]);
+    const G = plots.gyro.data;
+    draw(plots.gyro, [2].map(k => G.map(x => x[k] / 10)), ...bounds(G.map(x => x[2]/10)), ["#e0c07e"]);
+
+    if (s.events.length !== lastEvs.length) {
+      events.innerHTML = s.events.slice().reverse().map(e =>
+        `<div class="${e.ev.includes("BOLTS") ? "ev-hi" : ""}">${(e.t/1000).toFixed(1)}s &nbsp; ${e.ev}</div>`).join("");
+      lastEvs = s.events;
+    }
+  } catch (e) { links && (links.textContent = "OFFLINE"); }
+}
+setInterval(tick, 500); tick();
+
+function useMyGps() {
+  navigator.geolocation.watchPosition(p => {
+    const r = window._rocketGps;
+    if (!r || r.lat === null) { bear.textContent = "no rocket fix yet"; return; }
+    const dLa = (r.lat - p.coords.latitude) * Math.PI / 180;
+    const dLo = (r.lon - p.coords.longitude) * Math.PI / 180;
+    const la1 = p.coords.latitude * Math.PI / 180, la2 = r.lat * Math.PI / 180;
+    const x = dLo * Math.cos((la1 + la2) / 2), y = dLa;
+    const dist = Math.sqrt(x * x + y * y) * 6371000;
+    const brg = (Math.atan2(x, y) * 180 / Math.PI + 360) % 360;
+    bear.textContent = Math.round(dist) + " m @ " + Math.round(brg) + "\u00b0" +
+      " (walk " + Math.round((brg - p.coords.heading + 360) % 360) + "\u00b0 right of phone heading)";
+    arrow.textContent = "\u2191";
+    arrow.style.transform = `rotate(${brg}deg)`;
+  });
+}
+</script>
+</body>
+</html>
