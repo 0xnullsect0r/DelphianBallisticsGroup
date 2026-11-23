@@ -233,7 +233,12 @@ def main():
     convert(HERE / "telemetry_carriage.3mf", HERE / "telemetry_carriage_bambu.3mf",
             "telemetry_carriage", NOSE_PETG,
             "Rallus telemetry carriage: Pi Zero 2 W + LoRa + GPS chassis. "
-            "Slides into the nose cone cavity onto the three ledges. PETG.")
+            "Slides into the nose from the base until the disc stops under "
+            "the two ledges. PETG.")
+    convert(HERE / "nose_ballast_cup.3mf", HERE / "nose_ballast_cup_bambu.3mf",
+            "nose_ballast_cup", NOSE_PETG,
+            "Rallus nose ballast cup: fill with lead shot + epoxy on the bench, "
+            "keep the centre conduit and the cross tunnel clear. PETG, floor down.")
     plate = HERE / "all_parts.3mf"
     if plate.exists():
         convert(plate, HERE / "rallus_plate_bambu.3mf",

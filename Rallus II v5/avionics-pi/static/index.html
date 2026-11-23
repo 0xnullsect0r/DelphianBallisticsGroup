@@ -5,144 +5,257 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rallus II</title>
 <style>
-  body { font-family: system-ui, sans-serif; background: #10151c; color: #d8e0ea;
+  :root { --bg:#10151c; --card:#171f29; --line:#232d3a; --fg:#d8e0ea;
+          --dim:#8496aa; --acc:#7fa8d0; --ok:#7ee08a; --bad:#ff6b6b; --warn:#e0c07e; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg);
          margin: 0; padding: 12px; }
-  h1 { font-size: 18px; margin: 0 0 8px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-          gap: 12px; }
-  .card { background: #171f29; border-radius: 10px; padding: 10px; }
-  .card h2 { font-size: 13px; margin: 0 0 6px; color: #7fa8d0; font-weight: 600; }
-  canvas { width: 100%; height: 110px; }
-  .big { font-size: 34px; font-weight: 700; }
-  .row { display: flex; justify-content: space-between; font-size: 14px;
-         padding: 3px 0; border-bottom: 1px solid #232d3a; }
-  #events { font-family: ui-monospace, monospace; font-size: 12px; max-height: 180px;
-            overflow-y: auto; }
-  .ev-hi { color: #ff6b6b; font-weight: 700; }
-  .ok { color: #7ee08a; } .bad { color: #ff6b6b; }
-  #finder { font-size: 15px; }
-  #arrow { font-size: 40px; }
+  header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  h1 { font-size: 16px; margin: 0; letter-spacing: .08em; color: var(--dim); }
+  #statename { font-size: 30px; font-weight: 700; }
+  #mode { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--line); color: var(--dim); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .card { background: var(--card); border-radius: 10px; padding: 12px; min-width: 0; }
+  .card h2 { font-size: 12px; margin: 0 0 8px; color: var(--acc); font-weight: 600;
+             text-transform: uppercase; letter-spacing: .06em; }
+  canvas { width: 100%; height: 110px; display: block; }
+  .big { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .row { display: flex; justify-content: space-between; gap: 12px; font-size: 14px;
+         padding: 4px 0; border-bottom: 1px solid var(--line); }
+  .row span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  .dim { color: var(--dim); }
+  #events { font-family: ui-monospace, monospace; font-size: 12px; max-height: 180px; overflow-y: auto; }
+  .ev-hi { color: var(--bad); font-weight: 700; }
+  #coords { font-family: ui-monospace, monospace; font-size: 17px; user-select: all; word-break: break-all; }
+  .find { display: flex; align-items: center; gap: 14px; margin: 10px 0; }
+  #arrow { width: 84px; height: 84px; flex: none; transition: transform .25s; }
+  #dist { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  button, a.btn { font: inherit; font-size: 14px; color: var(--fg); background: #24405c; border: 0;
+           border-radius: 8px; padding: 10px 12px; text-decoration: none; display: inline-block;
+           margin: 4px 6px 0 0; cursor: pointer; }
+  button:active, a.btn:active { background: #2f5479; }
+  #banner { display: none; background: #5c2424; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; font-size: 14px; }
 </style>
 </head>
 <body>
-<h1>RALLUS II <span id="statename" class="big"></span></h1>
+<header>
+  <h1>RALLUS II</h1><span id="statename">&hellip;</span><span id="mode"></span>
+</header>
+<div id="banner"></div>
 <div class="grid">
-  <div class="card"><h2>Altitude <span id="alt" class="big"></span> m &nbsp;
-    max <span id="maxalt"></span> m</h2><canvas id="c_alt"></canvas></div>
-  <div class="card"><h2>Acceleration (mg)</h2><canvas id="c_acc"></canvas></div>
-  <div class="card"><h2>Roll rate (&deg;/s) &nbsp; canards <span id="delta"></span>&deg;</h2>
-    <canvas id="c_gyro"></canvas></div>
-  <div class="card"><h2>Status</h2>
-    <div class="row"><span>State</span><span id="st2"></span></div>
-    <div class="row"><span>Speed (v&#8747;)</span><span id="v"></span> m/s</div>
-    <div class="row"><span>Battery</span><span id="batt"></span></div>
-    <div class="row"><span>Nose temp</span><span id="tc"></span> &deg;C</div>
-    <div class="row"><span>Links</span>
-      <span id="links"></span></div>
-    <div class="row"><span>Bolt charge</span><span id="cont"></span></div>
-  </div>
-  <div class="card"><h2>GPS</h2>
-    <div class="row"><span>Position</span><span id="gps"></span></div>
-    <div class="row"><span>Sats / fix</span><span id="sats"></span></div>
-    <div class="row"><span>GPS alt</span><span id="gpsalt"></span></div>
-    <div id="finder">
-      <button onclick="useMyGps()">Find it from my position</button>
-      <span id="arrow"></span> <span id="bear"></span>
+
+  <div class="card">
+    <h2>Tracker</h2>
+    <div id="coords" class="dim">no position yet</div>
+    <div class="row"><span>Fix</span><span id="fixinfo">&ndash;</span></div>
+    <div class="row"><span>GPS altitude</span><span id="gpsalt">&ndash;</span></div>
+    <div class="find">
+      <svg id="arrow" viewBox="-50 -50 100 100" aria-label="direction to rocket">
+        <circle r="46" fill="none" stroke="#232d3a" stroke-width="4"/>
+        <path d="M0 -38 L22 26 L0 12 L-22 26 Z" fill="#7fa8d0"/>
+      </svg>
+      <div><div id="dist">&ndash;</div><div id="bear" class="dim">tap &ldquo;Find it&rdquo;</div></div>
     </div>
+    <button id="findbtn">Find it (use my GPS)</button>
+    <a class="btn" id="geolink" href="#">Open in Maps</a>
+    <a class="btn" id="applelink" href="#">Apple Maps</a>
+    <div id="lastfix" class="dim" style="font-size:13px;margin-top:10px"></div>
   </div>
+
+  <div class="card">
+    <h2>Altitude above pad</h2>
+    <span id="alt" class="big">0</span> m &nbsp;<span class="dim">max <span id="maxalt">0</span> m</span>
+    <canvas id="c_alt"></canvas>
+  </div>
+
+  <div class="card">
+    <h2>Status</h2>
+    <div class="row"><span>Speed (inertial)</span><span id="v">&ndash;</span></div>
+    <div class="row"><span>Battery</span><span id="batt">&ndash;</span></div>
+    <div class="row"><span>Bolt charge</span><span id="controw">&ndash;</span></div>
+    <div class="row rocket"><span>Nose temp</span><span id="tc">&ndash;</span></div>
+    <div class="row rocket"><span>Canards</span><span id="delta">&ndash;</span></div>
+    <div class="row"><span>Links</span><span id="links">&ndash;</span></div>
+    <div class="row ground"><span>Signal</span><span id="sig">&ndash;</span></div>
+    <div class="row ground"><span>Last packet</span><span id="age">&ndash;</span></div>
+    <div class="row ground"><span>Packets / lost</span><span id="pk">&ndash;</span></div>
+    <div class="row"><span>Radio</span><span id="radio" class="dim">&ndash;</span></div>
+  </div>
+
+  <div class="card rocket"><h2>Acceleration (g)</h2><canvas id="c_acc"></canvas></div>
+  <div class="card rocket"><h2>Roll rate (&deg;/s)</h2><canvas id="c_gyro"></canvas></div>
   <div class="card"><h2>Events</h2><div id="events"></div></div>
 </div>
-<script>
-const H = 240;                       // seconds of history on screen
-const plots = {
-  alt:  {el: c_alt,  data: [], min: v => Math.min(0, v), max: v => v * 1.1},
-  acc:  {el: c_acc,  data: []},
-  gyro: {el: c_gyro, data: []},
-};
-let lastEvs = [];
 
-function draw(p, series, y0, y1, colors) {
-  const c = p.el, ctx = c.getContext("2d");
-  c.width = c.clientWidth; c.height = c.clientHeight;
-  ctx.clearRect(0, 0, c.width, c.height);
-  if (!series.length) return;
-  const xs = i => i / (series.length - 1) * c.width;
-  const ys = v => c.height - (v - y0) / (y1 - y0) * c.height;
+<script>
+const $ = id => document.getElementById(id);
+const STATES = ["PAD IDLE","ARMED","BOOST","COAST","APOGEE","DESCENT","LANDED"];
+const MAXPTS = 1200;
+const hist = [];              // [t, alt, ax, ay, az, roll]
+let target = null;            // {lat, lon, stale}
+let me = null, heading = null, nEvents = -1, lastT = -1;
+
+function draw(canvas, series, colors) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width = canvas.clientWidth, h = canvas.height = canvas.clientHeight;
+  ctx.clearRect(0, 0, w, h);
+  const all = series.flat();
+  if (all.length < 2) return;
+  let lo = Math.min(0, ...all), hi = Math.max(...all);
+  if (hi - lo < 1e-6) hi = lo + 1;
+  const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+  const n = series[0].length;
+  const y0 = h - (0 - lo) / (hi - lo) * h;
+  ctx.strokeStyle = "#232d3a"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(w, y0); ctx.stroke();
   series.forEach((s, k) => {
     ctx.strokeStyle = colors[k]; ctx.lineWidth = 1.5; ctx.beginPath();
-    s.forEach((v, i) => i ? ctx.lineTo(xs(i), ys(v)) : ctx.moveTo(xs(i), ys(v)));
+    s.forEach((v, i) => {
+      const x = i / (n - 1) * w, y = h - (v - lo) / (hi - lo) * h;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
     ctx.stroke();
   });
+  ctx.fillStyle = "#8496aa"; ctx.font = "11px system-ui";
+  ctx.fillText(hi.toFixed(hi > 50 ? 0 : 1), 4, 12);
+  ctx.fillText(lo.toFixed(Math.abs(lo) > 50 ? 0 : 1), 4, h - 4);
 }
 
-function bounds(arrs) {
-  const flat = arrs.flat();
-  if (!flat.length) return [0, 1];
-  let lo = Math.min(...flat), hi = Math.max(...flat);
-  if (hi - lo < 1e-6) hi = lo + 1;
-  return [lo, hi * 1.05 === lo ? lo + 1 : hi * 1.05];
+function ago(sec) {
+  if (sec == null) return "never";
+  if (sec < 90) return Math.round(sec) + " s ago";
+  if (sec < 5400) return Math.round(sec / 60) + " min ago";
+  return (sec / 3600).toFixed(1) + " h ago";
+}
+
+function updateFinder() {
+  const t = target;
+  if (!t) { $("dist").textContent = "–"; return; }
+  const la = t.lat.toFixed(6), lo = t.lon.toFixed(6);
+  $("geolink").href = `geo:${la},${lo}?q=${la},${lo}(Rallus)`;
+  $("applelink").href = `https://maps.apple.com/?q=Rallus&ll=${la},${lo}`;
+  if (!me) return;
+  const R = 6371000, rad = Math.PI / 180;
+  const la1 = me.lat * rad, la2 = t.lat * rad, dLo = (t.lon - me.lon) * rad;
+  const x = dLo * Math.cos((la1 + la2) / 2), y = la2 - la1;
+  const d = Math.hypot(x, y) * R;
+  const brg = (Math.atan2(x, y) / rad + 360) % 360;
+  $("dist").textContent = d < 1000 ? Math.round(d) + " m" : (d / 1000).toFixed(2) + " km";
+  const card = ["N","NE","E","SE","S","SW","W","NW"][Math.round(brg / 45) % 8];
+  if (heading == null) {
+    $("arrow").style.transform = `rotate(${brg}deg)`;
+    $("bear").textContent = `${Math.round(brg)}° ${card} — top of screen = north`;
+  } else {
+    $("arrow").style.transform = `rotate(${brg - heading}deg)`;
+    $("bear").textContent = `${Math.round(brg)}° ${card} — follow the arrow`;
+  }
+}
+
+$("findbtn").onclick = async () => {
+  if (!navigator.geolocation || !window.isSecureContext) {
+    $("bear").innerHTML = 'phone GPS needs the secure page: <a style="color:#7fa8d0" href="https://' +
+      location.hostname + '/">open https://' + location.hostname + '</a> and accept the warning, ' +
+      'or use the Maps button.';
+    return;
+  }
+  navigator.geolocation.watchPosition(
+    p => { me = {lat: p.coords.latitude, lon: p.coords.longitude}; updateFinder(); },
+    e => { $("bear").textContent = "phone GPS: " + e.message; },
+    {enableHighAccuracy: true, maximumAge: 2000});
+  const onOri = e => {
+    if (e.webkitCompassHeading != null) heading = e.webkitCompassHeading;       // iOS
+    else if (e.absolute && e.alpha != null) heading = 360 - e.alpha;            // Android
+    updateFinder();
+  };
+  try {
+    if (window.DeviceOrientationEvent && DeviceOrientationEvent.requestPermission) {
+      if (await DeviceOrientationEvent.requestPermission() === "granted")
+        addEventListener("deviceorientation", onOri);
+    } else {
+      addEventListener("deviceorientationabsolute", onOri);
+    }
+  } catch (e) { /* no compass: arrow stays north-up */ }
+  $("bear").textContent = "waiting for phone GPS…";
+};
+
+function render(s) {
+  const ground = s.mode === "ground";
+  document.querySelectorAll(".rocket").forEach(e => e.style.display = ground ? "none" : "");
+  document.querySelectorAll(".ground").forEach(e => e.style.display = ground ? "" : "none");
+  $("mode").textContent = ground ? "ground tracker" : "rocket";
+  $("statename").textContent = STATES[s.st] || "?";
+  $("alt").textContent = Math.round(s.alt);
+  $("maxalt").textContent = Math.round(s.max_alt);
+  $("v").textContent = (s.v / 10).toFixed(0) + " m/s";
+  $("batt").textContent = (s.b / 1000).toFixed(2) + " V";
+  $("batt").className = s.b > 7000 ? "ok" : "bad";
+  $("controw").innerHTML = (s.e & 2) ? '<span class="bad">FIRED</span>'
+    : (s.e & 1) ? '<span class="ok">continuity OK</span>' : '<span class="warn">open / no charge</span>';
+  $("tc").textContent = s.tc === -32768 ? "no probe" : (s.tc / 10).toFixed(1) + " °C";
+  $("delta").textContent = (s.d / 100).toFixed(1) + "°";
+  const L = s.link;
+  const tag = (n, ok) => `<span class="${ok ? "ok" : "bad"}">${n}</span>`;
+  $("links").innerHTML = ground
+    ? tag("LORA", L.lora) + " " + tag("RX", L.age != null && L.age < 10)
+    : tag("PICO", L.pico) + " " + tag("GPS", L.gps) + " " + tag("LORA", L.lora && L.tx > 0);
+  $("radio").textContent = (L.lora_info || "") + (!ground && L.gps_info ? " · " + L.gps_info : "");
+  $("sig").textContent = L.rssi == null ? "–" : `${L.rssi} dBm, SNR ${L.snr} dB`;
+  $("age").textContent = ago(L.age);
+  $("age").className = L.age != null && L.age < 10 ? "ok" : "bad";
+  $("pk").textContent = `${L.rx} / ${L.lost}`;
+
+  const g = s.gps, lf = s.last_fix;
+  const live = g && g.lat != null && s.gps_age != null && s.gps_age < 10 && (!ground || (L.age != null && L.age < 15));
+  if (live) {
+    target = {lat: g.lat, lon: g.lon};
+    $("coords").textContent = g.lat.toFixed(6) + ", " + g.lon.toFixed(6);
+    $("coords").className = "";
+    $("fixinfo").innerHTML = `<span class="ok">live</span>, ${g.sats} sats`;
+    $("gpsalt").textContent = Math.round(g.alt_m) + " m MSL";
+  } else if (lf) {
+    target = {lat: lf.lat, lon: lf.lon};
+    $("coords").textContent = lf.lat.toFixed(6) + ", " + lf.lon.toFixed(6);
+    $("coords").className = "warn";
+    $("fixinfo").innerHTML = '<span class="warn">LAST KNOWN</span>';
+    $("gpsalt").textContent = Math.round(lf.alt_m) + " m MSL";
+  } else {
+    $("fixinfo").innerHTML = '<span class="bad">no fix</span>' + (g ? `, ${g.sats} sats` : "");
+  }
+  $("lastfix").textContent = lf
+    ? "Last good position heard " + ago(Date.now() / 1000 - lf.when) + " (saved on this box)"
+    : "";
+  updateFinder();
+
+  if (s.events.length !== nEvents) {
+    nEvents = s.events.length;
+    $("events").innerHTML = s.events.slice().reverse().map(e =>
+      `<div class="${/BOLTS|INHIBIT/.test(e.ev) ? "ev-hi" : ""}">${e.t.toFixed(1)} s &nbsp; ${e.ev}</div>`).join("");
+  }
+}
+
+function plots() {
+  draw($("c_alt"), [hist.map(p => p[1])], ["#7fa8d0"]);
+  if ($("c_acc").offsetParent) {
+    draw($("c_acc"), [2, 3, 4].map(k => hist.map(p => p[k] / 1000)), ["#ff6b6b", "#7ee08a", "#7fa8d0"]);
+    draw($("c_gyro"), [hist.map(p => p[5])], ["#e0c07e"]);
+  }
 }
 
 async function tick() {
   try {
-    const s = await (await fetch("/api/latest")).json();
-    statename.textContent = ["PAD IDLE","ARMED","BOOST","COAST","APOGEE","DESCENT","LANDED"][s.st];
-    alt.textContent = Math.round(s.alt); maxalt.textContent = Math.round(s.max_alt);
-    v.textContent = s.v / 10; delta.textContent = s.d / 100;
-    batt.textContent = (s.b / 1000).toFixed(2) + " V";
-    batt.className = s.b > 7000 ? "ok" : "bad";
-    tc.textContent = s.tc === -32768 ? "FAULT" : (s.tc / 10).toFixed(1);
-    links.textContent =
-      ["PICO","GPS","LORA"].map((n, i) =>
-        `<span class="${[s.link.pico, s.link.gps, s.link.lora_tx>0][i] ? "ok" : "bad"}">${n}</span>`)
-      .join(" ");
-    const cont = s.e & 1;
-    cont.innerHTML = cont ? '<span class="ok">CONTINUITY OK</span>'
-                          : '<span class="bad">OPEN / NO CHARGE</span>';
-    st2.textContent = statename.textContent;
-    if (s.gps && s.gps.lat !== null) {
-      gps.textContent = s.gps.lat.toFixed(5) + ", " + s.gps.lon.toFixed(5);
-      sats.textContent = s.gps.sats + " / " + s.gps.fix;
-      gpsalt.textContent = Math.round(s.gps.alt_m) + " m";
-      window._rocketGps = s.gps;
-    }
-    plots.alt.data.push(s.alt);
-    plots.acc.data.push(s.a);
-    plots.gyro.data.push(s.g);
-    if (plots.alt.data.length > H * 2) { plots.alt.data.shift(); plots.acc.data.shift(); plots.gyro.data.shift(); }
-    const alts = plots.alt.data;
-    draw(plots.alt, [alts], Math.min(0, ...alts), Math.max(10, ...alts) * 1.08, ["#7fa8d0"]);
-    const A = plots.acc.data;
-    draw(plots.acc, [0,1,2].map(k => A.map(x => x[k])), ...bounds(A),
-         ["#ff6b6b","#7ee08a","#7fa8d0"]);
-    const G = plots.gyro.data;
-    draw(plots.gyro, [2].map(k => G.map(x => x[k] / 10)), ...bounds(G.map(x => x[2]/10)), ["#e0c07e"]);
-
-    if (s.events.length !== lastEvs.length) {
-      events.innerHTML = s.events.slice().reverse().map(e =>
-        `<div class="${e.ev.includes("BOLTS") ? "ev-hi" : ""}">${(e.t/1000).toFixed(1)}s &nbsp; ${e.ev}</div>`).join("");
-      lastEvs = s.events;
-    }
-  } catch (e) { links && (links.textContent = "OFFLINE"); }
+    const [s, h] = await Promise.all([
+      fetch("/api/latest").then(r => r.json()),
+      fetch("/api/history").then(r => r.json())]);
+    $("banner").style.display = "none";
+    hist.length = 0; hist.push(...h.slice(-MAXPTS));
+    render(s); plots();
+  } catch (e) {
+    $("banner").style.display = "block";
+    $("banner").textContent = "No connection to the box — showing the last data received.";
+  }
 }
-setInterval(tick, 500); tick();
-
-function useMyGps() {
-  navigator.geolocation.watchPosition(p => {
-    const r = window._rocketGps;
-    if (!r || r.lat === null) { bear.textContent = "no rocket fix yet"; return; }
-    const dLa = (r.lat - p.coords.latitude) * Math.PI / 180;
-    const dLo = (r.lon - p.coords.longitude) * Math.PI / 180;
-    const la1 = p.coords.latitude * Math.PI / 180, la2 = r.lat * Math.PI / 180;
-    const x = dLo * Math.cos((la1 + la2) / 2), y = dLa;
-    const dist = Math.sqrt(x * x + y * y) * 6371000;
-    const brg = (Math.atan2(x, y) * 180 / Math.PI + 360) % 360;
-    bear.textContent = Math.round(dist) + " m @ " + Math.round(brg) + "\u00b0" +
-      " (walk " + Math.round((brg - p.coords.heading + 360) % 360) + "\u00b0 right of phone heading)";
-    arrow.textContent = "\u2191";
-    arrow.style.transform = `rotate(${brg}deg)`;
-  });
-}
+setInterval(tick, 1000); tick();
 </script>
 </body>
 </html>

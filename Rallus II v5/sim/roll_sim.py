@@ -25,16 +25,19 @@ import random
 # ----------------------------------------------------------------------------
 # Vehicle / motor params, from Rallus Mk.II V1.ork + its sim data.
 # ----------------------------------------------------------------------------
-MASS_START = 4.29        # kg, loaded (OR sim mass0)
-MASS_END = 3.74          # kg, burnout
-BURN_TIME = 2.1          # s (1115 Ns / 530 N avg, CTI stand-in curve)
-THRUST_N = 530.0         # N average during burn (custom propellant stand-in)
-CD = 0.40                # calibrated: burnout v matches OR's 246 m/s
+# 2026-11-22: REAL motor, openMotor's result for Motors.ric (9-grain KNER
+# BATES, K179), masses from the OpenRocket run of the v5 file. The CTI J530
+# stand-in (530 N for 2.1 s) was nothing like it.
+MASS_START = 5.34        # kg, loaded
+MASS_END = 4.29          # kg, burnout
+BURN_TIME = 7.18         # s
+THRUST_N = 179.0         # N average during burn
+CD = 0.45
 AREA = math.pi * 0.0254 ** 2   # m^2, 2 in body
 RHO = 1.225              # kg/m^3, sea level
 G = 9.81
 
-IXX = 0.0020             # kg m^2 roll inertia (OR sim, burnout)
+IXX = 0.0031             # kg m^2 roll inertia (OpenRocket, v5 file: 0.0033 loaded -> 0.0030 burnout)
 
 # Canards: 35 mm root / 15.4 mm tip / 28 mm span, 35 deg LE sweep, 1.5 mm
 # brass (geometry in V2.ork; sizing rationale from stability.py sweep).
@@ -43,17 +46,26 @@ FIN_CN_ALPHA = 2.5       # normal force slope per rad, AR 2.2 canard
 FIN_ARM = 0.0394         # m, canard CP radius from roll axis
 N_FINS_ROLL = 4          # all four canards contribute to roll differentially
 
-MISALIGN_DEG = 0.3       # effective fin cant, disturbance torque scales with Q
+# Disturbance (rev 2026-11-22): the design case is BOOSTER fin cant, not
+# canard misalignment. The old model canted the tiny canards 0.3 deg, a
+# disturbance ~15x smaller than one crooked booster fin, and had no roll
+# damping at all, so it said nothing about whether the gains were enough.
+# Booster fins per the v5 ORK: 141 root / 36.4 tip / 80 span.
+BOOST_FIN_AREA = 0.5 * (0.141 + 0.0364) * 0.080   # m^2 per fin
+BOOST_FIN_CN_ALPHA = 2.0     # per rad on its own area (AR ~0.9, with body carry-over)
+BOOST_FIN_ARM = 0.0254 + 0.4 * 0.080              # m, fin CP radius
+CANT_DEG = 0.2               # every booster fin canted the same way (jig tolerance)
+N_CANTED = 4
 
 # ----------------------------------------------------------------------------
 # Controller params, mirror of firmware config.h
 # ----------------------------------------------------------------------------
-KP = 0.15                # deg per deg/s
-KI = 0.02                # deg per deg/s*s
+KP = 0.30                # deg per deg/s
+KI = 1.00                # deg per deg/s*s
 SCHED_VREF = 25.0        # m/s
 MAX_DELTA = 15.0         # deg
 MAX_RATE = 600.0         # deg/s command slew
-AUTH_VMIN, AUTH_VMAX = 15.0, 275.0
+AUTH_VMIN, AUTH_VMAX = 10.0, 275.0
 
 # Transonic deflection taper, mirror of DEFLECT_* in config.h.
 DEFLECT_FULL_V = 100.0
@@ -65,7 +77,7 @@ SERVO_TAU = 0.020
 SERVO_RATE = 400.0       # deg/s
 
 DT = 0.001               # 1 kHz, matches the firmware control rate
-T_END = 20.0
+T_END = 30.0
 
 
 def thrust(t):
@@ -96,12 +108,24 @@ def roll_torque(q, delta_deg):
     return N_FINS_ROLL * q * FIN_AREA * FIN_CN_ALPHA * math.radians(delta_deg) * FIN_ARM
 
 
-def disturb_torque(q):
-    """Misalignment, scales with Q."""
-    return q * FIN_AREA * FIN_CN_ALPHA * math.radians(MISALIGN_DEG) * FIN_ARM
+def disturb_torque(q, cant_deg=None, n=None):
+    """Booster fin cant, scales with Q."""
+    cant = CANT_DEG if cant_deg is None else cant_deg
+    n = N_CANTED if n is None else n
+    return n * q * BOOST_FIN_AREA * BOOST_FIN_CN_ALPHA * math.radians(cant) * BOOST_FIN_ARM
 
 
-def simulate(kp=KP, ki=KI, plot=False):
+def damping_torque(q, v, omega_deg):
+    """Aerodynamic roll damping: a spinning fin sees an angle of attack of
+    omega * r / v. Booster fins dominate."""
+    if v < 1.0:
+        return 0.0
+    k = 4 * BOOST_FIN_AREA * BOOST_FIN_CN_ALPHA * BOOST_FIN_ARM ** 2 \
+        + 4 * FIN_AREA * FIN_CN_ALPHA * FIN_ARM ** 2
+    return q * k * math.radians(omega_deg) / v
+
+
+def simulate(kp=KP, ki=KI, plot=False, control=True, cant_deg=None, n_canted=None):
     v = 0.0
     alt = 0.0
     omega = 0.0           # deg/s roll rate
@@ -123,13 +147,15 @@ def simulate(kp=KP, ki=KI, plot=False):
         m = mass(t)
         drag = q_dyn(v) * CD * AREA if v > 0 else 0.0
         a = (thrust(t) - drag) / m - (G if alt > 0.5 or t > 0.2 else 0.0)
+        if t > BURN_TIME and v <= 0.5:
+            break                                   # apogee
         v = max(v + a * DT, 0.0)
         alt = max(alt + v * DT, 0.0)
 
         q = q_dyn(v)
         # Control arms at liftoff detection (~40 ms) and gates on the
         # authority window, same as the firmware state machine.
-        authority = (t > 0.04) and (AUTH_VMIN <= v <= AUTH_VMAX)
+        authority = control and (t > 0.1) and (AUTH_VMIN <= v <= AUTH_VMAX)
 
         # Controller, identical structure to ctrl_step().
         omega_meas = omega + random.gauss(0, gyro_noise)
@@ -157,7 +183,8 @@ def simulate(kp=KP, ki=KI, plot=False):
         delta_act = delta_next
 
         # Roll dynamics.
-        net = roll_torque(q, delta_act) - disturb_torque(q)
+        net = roll_torque(q, delta_act) - disturb_torque(q, cant_deg, n_canted) \
+            - damping_torque(q, v, omega)
         omega += math.degrees(net / IXX) * DT
 
         ts.append(t)
@@ -174,8 +201,11 @@ def simulate(kp=KP, ki=KI, plot=False):
         "max_omega": max(abs(w) for w in omegas),
         "max_omega_after_0.1s": max_omega_ctrl,
         "burnout_omega": burnout_omega,
-        "omega_at_5s": omegas[int(5.0 / DT)],
-        "omega_at_10s": omegas[int(10.0 / DT)],
+        "omega_at_5s": omegas[min(int(5.0 / DT), len(omegas) - 1)],
+        "omega_at_10s": omegas[min(int(10.0 / DT), len(omegas) - 1)],
+        "rms_omega_boost": math.sqrt(sum(w * w for w in omegas[:int(BURN_TIME / DT)])
+                                     / int(BURN_TIME / DT)),
+        "roll_angle_total_deg": abs(sum(omegas) * DT),
         "v_max": max(vs),
         "max_delta": max(abs(d) for d in deltas),
     }
@@ -201,15 +231,23 @@ if __name__ == "__main__":
     args = ap.parse_args()
 
     if args.sweep:
-        print(f"{'Kp':>6} {'Ki':>6} {'max|w|':>8} {'w@5s':>8} {'w@10s':>8} {'max d':>7}")
-        for kp in (0.05, 0.1, 0.15, 0.2, 0.3, 0.5):
-            for ki in (0.01, 0.02, 0.05):
+        print(f"{'Kp':>6} {'Ki':>6} {'max|w|':>8} {'rms boost':>9} {'w@5s':>8} {'w@10s':>8} {'max d':>7} {'turns':>6}")
+        for kp in (0.05, 0.15, 0.3, 0.5, 1.0):
+            for ki in (0.02, 0.1, 0.5, 2.0, 5.0):
+                random.seed(1)
                 s = simulate(kp, ki)
-                print(f"{kp:6.2f} {ki:6.2f} {s['max_omega_after_0.1s']:8.1f} "
-                      f"{s['omega_at_5s']:8.1f} {s['omega_at_10s']:8.1f} {s['max_delta']:7.1f}")
+                print(f"{kp:6.2f} {ki:6.2f} {s['max_omega_after_0.1s']:8.1f} {s['rms_omega_boost']:9.1f} "
+                      f"{s['omega_at_5s']:8.1f} {s['omega_at_10s']:8.1f} {s['max_delta']:7.2f} "
+                      f"{s['roll_angle_total_deg']/360:6.2f}")
     else:
-        random.seed(42)
-        s = simulate(plot=args.plot)
-        print("Rallus II roll sim (V2.ork geometry, OR-measured Ixx/mass)")
-        for k, v in s.items():
-            print(f"  {k:22s} {v:8.1f}")
+        cases = [("no control, 4 fins @ %.1f deg" % CANT_DEG, dict(control=False)),
+                 ("controlled, 4 fins @ %.1f deg" % CANT_DEG, {}),
+                 ("controlled, 1 fin @ 0.5 deg", dict(cant_deg=0.5, n_canted=1)),
+                 ("controlled, 4 fins @ 0.5 deg (bad build)", dict(cant_deg=0.5))]
+        print(f"Rallus II roll sim: K179 profile, Ixx {IXX}, Kp {KP}, Ki {KI}")
+        for name, kw in cases:
+            random.seed(42)
+            s = simulate(plot=args.plot and not kw, **kw)
+            print(f"  {name:42s} max {s['max_omega_after_0.1s']:6.1f} deg/s  rms boost "
+                  f"{s['rms_omega_boost']:6.1f}  at 10 s {s['omega_at_10s']:7.1f}  "
+                  f"max canard {s['max_delta']:5.2f} deg  total {s['roll_angle_total_deg']/360:5.1f} turns")

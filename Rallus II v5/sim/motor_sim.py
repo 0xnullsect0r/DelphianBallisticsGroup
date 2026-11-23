@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""Internal-ballistics estimate for the EX motor in Motors.ric (openMotor file).
+
+Reads the BATES grain stack, nozzle and propellant straight from the .ric,
+steps the burn (steady-state chamber pressure, Saint-Robert burn rate, no
+erosive burning), and reports thrust curve, impulse class, pressures and
+masses. Optionally writes a RASP .eng for OpenRocket.
+
+This is a cross-check of openMotor, not a replacement: same equations, no
+erosive/mass-flux model. Expect a few percent agreement on impulse.
+
+Usage:
+    python3 sim/motor_sim.py Motors.ric
+    python3 sim/motor_sim.py Motors.ric --eng openrocket/Rallus_EX.eng
+    python3 sim/motor_sim.py Motors.ric --hardware-g 250   # nozzle+closure+liner
+"""
+
+import argparse
+import math
+import re
+
+R_UNIV = 8314.46   # J/(kmol K)
+
+
+def load_ric(path):
+    txt = open(path).read()
+    num = lambda key, s=txt: float(re.search(rf"\b{key}:\s*([-\d.eE+]+)", s).group(1))
+    grains = []
+    for blk in re.split(r"\n\s*- properties:", txt.split("grains:")[1].split("nozzle:")[0])[1:]:
+        ends = re.search(r"inhibitedEnds:\s*(\w+)", blk).group(1)
+        grains.append({
+            "core": num("coreDiameter", blk), "dia": num("diameter", blk),
+            "len": num("length", blk),
+            "ends": {"Neither": 2, "Top": 1, "Bottom": 1, "Both": 0}[ends],
+        })
+    noz = txt.split("nozzle:")[1].split("propellant:")[0]
+    prop = txt.split("propellant:")[1]
+    return {
+        "grains": grains,
+        "throat": num("throat", noz), "exit": num("exit", noz),
+        "eff": num("efficiency", noz), "div": num("divAngle", noz),
+        "rho": num("density", prop), "a": num("a", prop), "n": num("n", prop),
+        "k": num("k", prop), "M": num("m", prop), "T": num("t", prop),
+        "name": re.search(r"name:\s*(.+)", prop).group(1).strip(),
+        "p_amb": num("ambPressure"), "p_max": num("maxPressure"),
+    }
+
+
+def exit_pressure_ratio(k, area_ratio):
+    """Pe/Pc for a given expansion ratio (supersonic branch), by bisection."""
+    def ar(pr):
+        return (((k + 1) / 2) ** (1 / (k - 1)) * pr ** (1 / k) *
+                math.sqrt((k + 1) / (k - 1) * (1 - pr ** ((k - 1) / k)))) ** -1
+    lo, hi = 1e-6, (2 / (k + 1)) ** (k / (k - 1))
+    for _ in range(80):
+        mid = math.sqrt(lo * hi)
+        if ar(mid) > area_ratio:
+            lo = mid
+        else:
+            hi = mid
+    return math.sqrt(lo * hi)
+
+
+def simulate(m, dt=0.002):
+    k = m["k"]
+    cstar = math.sqrt(R_UNIV * m["T"] / m["M"]) / (
+        math.sqrt(k) * (2 / (k + 1)) ** ((k + 1) / (2 * (k - 1))))
+    at = math.pi / 4 * m["throat"] ** 2
+    ae = math.pi / 4 * m["exit"] ** 2
+    pr_e = exit_pressure_ratio(k, ae / at)
+    lam = (1 + math.cos(math.radians(m["div"]))) / 2
+
+    def vol(g, x):
+        d, L = g["core"] + 2 * x, g["len"] - g["ends"] * x
+        return max(math.pi / 4 * (g["dia"] ** 2 - d ** 2) * L, 0.0) if d < g["dia"] and L > 0 else 0.0
+
+    def area(g, x):
+        d, L = g["core"] + 2 * x, g["len"] - g["ends"] * x
+        if d >= g["dia"] or L <= 0:
+            return 0.0
+        return math.pi * d * L + g["ends"] * math.pi / 4 * (g["dia"] ** 2 - d ** 2)
+
+    prop_mass = sum(vol(g, 0) for g in m["grains"]) * m["rho"]
+    x, t = 0.0, 0.0
+    curve = []
+    while True:
+        ab = sum(area(g, x) for g in m["grains"])
+        if ab <= 0:
+            break
+        kn = ab / at
+        pc = (kn * m["rho"] * m["a"] * cstar) ** (1 / (1 - m["n"]))
+        pe = pc * pr_e
+        cf_mom = math.sqrt(2 * k * k / (k - 1) * (2 / (k + 1)) ** ((k + 1) / (k - 1))
+                           * (1 - pr_e ** ((k - 1) / k)))
+        cf = m["eff"] * lam * cf_mom + (pe - m["p_amb"]) / pc * ae / at
+        thrust = max(cf * pc * at, 0.0)
+        curve.append((t, thrust, pc, kn))
+        x += m["a"] * pc ** m["n"] * dt
+        t += dt
+    curve.append((t, 0.0, 0.0, 0.0))
+    return curve, prop_mass, cstar
+
+
+def summarize(curve, prop_mass):
+    dt = curve[1][0] - curve[0][0]
+    impulse = sum(c[1] for c in curve) * dt
+    peak = max(c[1] for c in curve)
+    # burn time: 5% of peak thrust thresholds
+    on = [c[0] for c in curve if c[1] > 0.05 * peak]
+    tb = on[-1] - on[0]
+    letter = "ABCDEFGHIJKLMNO"[max(0, math.ceil(math.log2(impulse / 2.5)))]
+    return {
+        "impulse": impulse, "peak": peak, "burn": tb, "avg": impulse / tb,
+        "class": f"{letter}{impulse / tb:.0f}",
+        "pc_max": max(c[2] for c in curve), "kn_max": max(c[3] for c in curve),
+        "kn_min": min(c[3] for c in curve[:-1]), "isp": impulse / (prop_mass * 9.80665),
+        "prop_mass": prop_mass,
+    }
+
+
+def write_eng(path, curve, s, m, hardware_kg):
+    length_mm = sum(g["len"] for g in m["grains"]) * 1000
+    dia_mm = m["grains"][0]["dia"] * 1000
+    step = max(1, len(curve) // 30)
+    pts = curve[step::step]
+    if pts[-1][1] != 0.0:
+        pts.append(curve[-1])
+    with open(path, "w") as f:
+        f.write("; Rallus II EX motor, generated by sim/motor_sim.py from Motors.ric\n")
+        f.write("; ESTIMATE ONLY - replace with static-test data when available\n")
+        f.write(f"Rallus_EX_{s['class']} {dia_mm:.0f} {length_mm:.0f} P "
+                f"{s['prop_mass']:.3f} {s['prop_mass'] + hardware_kg:.3f} DBG\n")
+        for t, thr, _, _ in pts:
+            f.write(f"   {max(t, 0.001):.3f} {thr:.1f}\n")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("ric")
+    ap.add_argument("--eng", help="write a RASP .eng thrust curve here")
+    ap.add_argument("--hardware-g", type=float, default=250.0,
+                    help="nozzle + forward closure + liner mass, g (the booster "
+                         "tube itself is the case and is already in the ORK)")
+    args = ap.parse_args()
+
+    m = load_ric(args.ric)
+    curve, prop_mass, cstar = simulate(m)
+    s = summarize(curve, prop_mass)
+    g = m["grains"]
+    print(f"propellant        {m['name']}  rho {m['rho']:.0f} kg/m3  c* {cstar:.0f} m/s")
+    print(f"grains            {len(g)} x BATES {g[0]['dia']*1000:.1f} x {g[0]['len']*1000:.1f} mm, "
+          f"core {g[0]['core']*1000:.1f} mm  (stack {sum(x['len'] for x in g)*1000:.0f} mm)")
+    print(f"propellant mass   {s['prop_mass']*1000:.0f} g")
+    print(f"total impulse     {s['impulse']:.0f} N s   -> {s['class']}  (Isp {s['isp']:.0f} s)")
+    print(f"burn time         {s['burn']:.2f} s   avg {s['avg']:.0f} N   peak {s['peak']:.0f} N")
+    print(f"chamber pressure  max {s['pc_max']/1e6:.2f} MPa ({s['pc_max']/6894.76:.0f} psi), "
+          f"file limit {m['p_max']/1e6:.2f} MPa")
+    print(f"Kn                {s['kn_min']:.0f} .. {s['kn_max']:.0f}")
+    for frac in (0.0, 0.1, 0.25, 0.5, 0.75, 0.9):
+        c = curve[int(frac * (len(curve) - 2))]
+        print(f"   t={c[0]:5.2f} s  thrust {c[1]:6.0f} N  Pc {c[2]/1e6:5.2f} MPa")
+    if args.eng:
+        write_eng(args.eng, curve, s, m, args.hardware_g / 1000)
+        print(f"wrote {args.eng}")
+    return curve, s
+
+
+if __name__ == "__main__":
+    main()

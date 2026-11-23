@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #define LOGQ_BITS   11
-#define LOGQ_SIZE   (1u << LOGQ_BITS)   // 2048 records, 8 s of buffering at 250 Hz
+#define LOGQ_SIZE   (1u << LOGQ_BITS)   // 2048 records = ~2 s of buffering at the 1 kHz flight rate
 
 void     logq_init(void);
 bool     logq_push(const log_record_t *rec);   // producer (core 0), false if full

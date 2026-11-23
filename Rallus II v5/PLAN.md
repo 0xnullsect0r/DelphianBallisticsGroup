@@ -20,13 +20,14 @@ Pivot to two boards, per user decisions:
    slightly later setting. This REVERSES the old "board never touches
    pyro" rule - user's explicit call.
 2. **Pi Zero 2 W = broadcaster** (new `avionics-pi/`): GPS (u-blox on I2C,
-   because the Pico owns the only UART), LoRa RFM95W 915 MHz (SF10/125k,
-   ~1 Hz frames with position + stats + events, 2 Hz in flight / beacon
-   after landing), and a WiFi hotspot serving the live dashboard
+   because the Pico owns the only UART), LoRa RFM95W 915 MHz (SF10/500k,
+   26-byte frames with position + stats + events, 2 Hz in flight / one
+   every 3 s on the pad and after landing), and a WiFi hotspot serving the live dashboard
    (`static/index.html`): altitude/accel/roll plots, state machine,
    battery, nose temp, event log with BOLTS FIRED, and a find-it arrow
-   using the phone's own GPS. Ground box mode (`GROUND=1`) runs the same
-   code at the pad for full-flight live view.
+   using the phone's own GPS. Ground tracker mode (`GROUND=1`) runs the
+   same code on a second Pi in your hand: full-flight live view, signal
+   strength, and the last known position saved to disk.
 3. Log record grew to 38 bytes (events byte: pyro continuity + fired),
    LOG_VERSION 4. Telemetry to the Pi is 10 Hz JSON lines on UART0
    (GP0/GP1, 115200).
@@ -34,6 +35,157 @@ Pivot to two boards, per user decisions:
 Radio reality baked in: WiFi dies a few hundred meters out; LoRa carries
 the flight and the beacon. Hardware mounting for Pi/GPS/LoRa on the blade
 is the remaining v5 work item.
+
+## v5 audit (2026-11-22): what was wrong, what changed
+
+Full pass over firmware, Pi code, dashboard and hardware notes. Fixed in
+the tree (firmware builds; flash writer, state machine, frame codec, GPS
+parser and a rocket<->ground simulated flight all pass host tests):
+
+| Area | Was | Now |
+|---|---|---|
+| IMU init | register read clocked 1 byte (always garbage), range/ODR written to the wrong bank -> IMU never came up | 2-byte read, GYRO/ACCEL_CONFIG0 at bank 0 0x4F/0x50, read-back check |
+| IMU range | assumed +/-32 g | ICM-42688-P max is +/-16 g: scale 2048 LSB/g, brief clip at the ~18 g peak accepted |
+| IMU mounting | identity remap, no orientation defined | `IMU_UP_AXIS` in config.h (default chip +X at the nose) |
+| Flash log | 38 B records programmed across 256 B page boundaries -> wraps and corrupts; erase only on aligned pages | byte-stream page writer, blank-check before erase, boot-time recovery scan |
+| Log dump | tool decoded 36 B records, USB CRLF translation mangled the binary | 38 B + events column, translation off during dump |
+| Baro | MS5607 second-order constants, applied after the pressure was computed | MS5611 constants, applied first |
+| Pyro | fired on a single baro sample 2 m below max or v_hat < 5: a 3 g bump on an armed rocket fired the bolts | two-sensor apogee agreement, median baro filter, 8 s + (150 m or 100 m/s) fire lockout, FET forced off first thing at boot |
+| v_hat | integrated accelerometer offset for minutes while armed | held at 0 on the pad |
+| LoRa driver | wrong chip-select (CE0 vs wired CE1), payload length never set (sent 255 B), TX FIFO pointer wrong, 125 kHz fixed channel | fixed; SF10/500 kHz (FCC 15.247 legal), 26 B binary frame, 100 ms airtime, RSSI/SNR |
+| GPS driver | 255-byte SMBus block read (max is 32) -> exception loop, drained 1x/s, no airborne mode | raw I2C reads, u-blox DDC + PA1010D autodetect, 5 Hz, airborne/balloon dynamics, checksums |
+| Service | ground mode crashed on the first frame, CSV wrote the same rows repeatedly, no autostart | rewritten; last-known-position persistence, systemd unit |
+| Dashboard | a variable named like an element threw on every refresh -> permanently "OFFLINE" | rewritten; tracker card, Find it, Maps hand-off |
+
+### Second pass (same day): the open items, worked through
+
+**1. The motor is not a J530. Everything is now based on `Motors.ric`.**
+`sim/openmotor_run.py` runs the file through openMotor's own engine
+(motorlib); the result is exported to `openrocket/Rallus_EX_K179.eng`, and
+that motor (DBG K179) replaces the Cesaroni J530 in
+`openrocket/Rallus Mk.II V5.ork`. `sim/openrocket_run.py` runs the three
+stored OpenRocket simulations headlessly.
+
+| | Stand-in used so far (CTI J530) | Motors.ric in openMotor |
+|---|---|---|
+| Class / impulse | J530, 1115 N s | **K179, 1289 N s** |
+| Burn | 2.1 s | **7.18 s** |
+| Thrust avg / peak | 530 / ~650 N | **179 / 221 N** |
+| Chamber pressure max | - | 3.24 MPa (470 psi), Kn 781-851 |
+| Propellant | 0.55 kg | 1.054 kg, Isp 125 s |
+
+OpenRocket 24.12 with that motor, on the file as it was (65 mm booster
+fins, 238 g nose) versus as it is now:
+
+| | Plan assumed | As it was + K179 | **Now: 280 g nose, 80 mm fins** |
+|---|---|---|---|
+| Liftoff mass | 4.67 kg | 5.11 kg | 5.34 kg |
+| Thrust / weight | 12 : 1 | 3.9 : 1 | 3.7 : 1 |
+| Rail exit | 32.5 m/s | 13.3 m/s | 12.9 m/s |
+| Static margin at liftoff | 2.5 cal | **0.97 cal** | **2.33 cal** |
+| Margin at burnout | 2.8 cal | 1.57 cal | 3.00 cal |
+| Min margin in flight, 2 m/s crosswind | - | 0.36 cal | 1.56 cal |
+| 5 m/s gusty crosswind | - | **unstable, crashes** | flies, min 0.78 cal |
+| Max speed | 246 m/s, M0.73 | 189 m/s, M0.56 | 178 m/s, M0.53 |
+| Apogee | 2240 m | 2208 m | 2040 m at 23 s |
+
+Two separate problems came out of that:
+
+*Stability.* On the real motor the old airframe had under 1 cal at
+liftoff. Fixed in the .ork: the nose carries its real 280 g (shell +
+electronics + 150 g ballast cup) and the **booster fins go from 65 to 80 mm
+span** (141 mm root, tip chord 36.4 mm, same leading-edge sweep). 90 mm
+span gives 2.7 cal / 1.2 cal in gusts if you would rather have more; 0.7x
+canards alone gives 2.2 cal but halves roll authority. `stability.py`
+reads ~0.5 cal optimistic against OpenRocket on this airframe, so
+OpenRocket is the authority from here on.
+
+*Thrust.* 3.7 : 1 and ~13 m/s off the rail are under the usual 5 : 1 /
+15 m/s floor. It weathercocks, and the arc shows up at the other end:
+OpenRocket deploys the chutes at 11 m/s in calm air, 21 m/s in a 2 m/s
+crosswind and 36-43 m/s in the gusty case. **Fly it in calm air (2 m/s or
+less) as it stands.** If you want margin, these are estimates from
+`flight_sim.py` (built-in ballistics, within 3 % of openMotor on the stock
+motor; confirm any change in openMotor itself):
+
+| Change | T/W | Rail exit | Pc max | Notes |
+|---|---|---|---|---|
+| as drawn | 3.7 | ~12-13 m/s | 3.2 MPa | calm-day only |
+| guided travel 4 m (longer rail) | 3.7 | ~15 m/s | 3.2 MPa | no motor change |
+| throat 7.0 mm | 4.9 | 14.5 m/s | 5.4 MPa | ~K245 |
+| throat 6.5 mm | 5.6 | 15.7 m/s | 7.0 MPa | ~K281 |
+| core 22 mm (same throat) | 5.7 | 15.6 m/s | 4.0 MPa | ~J252 |
+
+The motor stays exactly as `Motors.ric` has it unless you change that
+file; then re-run `openmotor_run.py` and `openrocket_run.py`.
+
+Firmware is set for this motor (and tolerates up to ~K281): liftoff detect
+2 g for 100 ms (thrust is only 3.7 g; the old 3 g threshold sat on top of
+it), pyro lockout 12 s, authority from 10 m/s, and a false liftoff returns
+to the pad sequence instead of latching LANDED.
+
+*Roll gains.* `roll_sim.py` now models what actually spins the rocket:
+booster-fin cant (0.2 deg on all four 80 mm fins) against aerodynamic roll
+damping, with OpenRocket's roll inertia (0.0031 kg m^2). Uncontrolled that
+is ~600 deg/s. The old starting gains (Kp 0.15, Ki 0.02) only brought it
+to ~220 deg/s: the integrator was far too slow to trim the cant out. **Kp
+0.3 / Ki 1.0** (now in `config.h`) holds it under 5 deg/s using ~2.6 deg
+of canard, and stays well damped with the canards 2x or 0.5x as effective
+as modeled, the inertia 35 % off, or a slow servo. Linkage backlash is not
+modeled: if the M4 log shows a small steady oscillation, halve Ki.
+
+*Motor what-ifs, run through openMotor and then OpenRocket* (80 mm fins,
+280 g nose):
+
+| Motor | openMotor | Alerts | Rail exit | Apogee | Min margin, gusty | Deploy speed, gusty |
+|---|---|---|---|---|---|---|
+| as drawn | K179, 3.2 MPa | none | 12.9 m/s | 2040 m | 0.77 | 36 m/s |
+| throat 7.5 mm | K209, 4.3 MPa | none | 14.3 m/s | 2205 m | 0.87 | 35 m/s |
+| core 19 mm | J222, 3.8 MPa | none | 15.4 m/s | 1808 m | 1.05 | 28 m/s |
+| core 22 mm | J243, 4.0 MPa | none | 16.4 m/s | 1642 m | 1.15 | 24 m/s |
+| **throat 7.0 + core 16 mm** | **J258, 5.9 MPa** | **none** | **16.6 m/s** | 2116 m | 1.02 | 29 m/s |
+| throat 6.5 + core 16 mm | K295, 7.6 MPa | none | 18.1 m/s | 2241 m | 1.06 | 24 m/s |
+| throat 7.0 or smaller, 12.7 core | K231+ | mass flux over the file's limit (erosive risk) | - | - | - | - |
+
+These replace the rough table above. Throat 7.0 mm with a 16 mm core is
+the best of the no-alert options at moderate pressure; it is your call
+and `Motors.ric` is untouched.
+
+**2. Nose mass.** The .ork nose is overridden to 280 g with its CG 237 mm
+from the tip. Weigh the finished nose, put the real numbers in the nose
+cone's mass override, and re-run `openrocket_run.py`.
+
+**3. Nose rework (`hardware/nosecone.py`, `telemetry_carriage.py`).** The
+first v5 nose could not be assembled: the carriage disc could not pass its
+three ledges, the key pins were modeled in mid-air (they exported as loose
+cylinders), and ballast poured in place would have entombed the Pi. Now:
+two ledges the carriage slides past, a removable printed **ballast cup**
+(cast lead + epoxy on the bench, ~135-150 g, centre conduit for the
+harness), key pins as 4 mm dowels glued into the cup, one 5 mm cross pin
+through the nose wall and cup that locks it all and anchors the shock
+cord. No antenna holes.
+
+**4. Blade rework (`hardware/avionics_slide_mount.py`).** IMU tray added
+(+X short tray). All four trays are now open pockets on the blade face;
+the old ones were cut through the blade and had half-severed the Pico
+standoffs. Battery window is 33 x 59 mm for a real flat pack: Zeee 2S
+850 mAh (54 x 30 x 15, ~3.5 h) or Gens ace 2S 450 (56 x 31 x 11, ~1.8 h).
+Blade is 22 mm longer (154 mm); switch slot and RFB hole moved to stations
+218.5 / 220 mm, drill template updated.
+
+**5. Wiring**: `hardware/WIRING.md` has the full hookup: two BECs, parallel
+arm interlock, the pyro channel with its gate pulldown, nose plug pinout.
+
+Still yours, because it needs hands or a decision:
+
+- Static-test the motor; nothing replaces a real curve. Decide whether to
+  raise the thrust (table above) or accept calm-air-only flights.
+- Cut the booster fins to 80 mm span.
+- Verify board sizes against the trays before printing (GY modules vary),
+  and set `IMU_UP_AXIS`.
+- Bench bring-up in order: `firmware/README.md`, `hardware/WIRING.md`,
+  `avionics-pi/README.md`, then a walk-away range test of the tracker.
+  None of this has run on real hardware.
 
 ## v4 changes (2026-11-10)
 
@@ -94,10 +246,10 @@ each half recovers under its own chute (24 in upper, 30 in booster).
 | Total length | 1.17 m (nose 282 + upper tube 305 + coupler 25 + booster 559 mm) |
 | Diameter | 2.0 in (50.8 mm OD) |
 | Upper section | PLA conical nose (362 g) + aluminum tube, 2 mm wall, 305 mm |
-| Booster | steel tube, 3 mm wall, 559 mm + 4 steel fins, 141 mm root, 65 mm span |
+| Booster | steel tube, 4 mm wall (it is the motor case), 559 mm + 4 steel fins, 141 mm root, 80 mm span |
 | Canards | 4x brass, 35 mm root / 15.4 mm tip / 28 mm span, 35 deg LE sweep, 1.5 mm |
-| Motor | Custom EX propellant, modeled as CTI 1115J530-15A (~530 N, ~2.1 s) |
-| Liftoff mass | ~4.67 kg (component sum incl. camera + thermocouple bays) |
+| Motor | Custom EX, 9-grain KNER BATES per Motors.ric: K179 in openMotor (179 N avg, 7.2 s) |
+| Liftoff mass | 5.34 kg (OpenRocket, v5 file) |
 
 V1 sim reference: apogee 2485 m, 263 m/s (M0.78) burnout, 19.3 g, 33.8 m/s
 off a 3 m rail. V2 is slightly draggier (bigger surfaces); re-sim pending.

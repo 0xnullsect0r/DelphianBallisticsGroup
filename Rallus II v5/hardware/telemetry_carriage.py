@@ -12,10 +12,12 @@ axis carrying:
 
 Flat-frame mapping: X along the rocket axis (disc end at X=PLATE_L),
 Y across, Z out of the plate. Nose transform used for the assembly check:
-nose_z = (PLATE_L + DISC_T) + 26 - X, nose_x = Z, nose_y = Y.
+nose_z = NOSE_Z0 + X (NOSE_Z0 = 20.7), nose_x = -Z, nose_y = Y.
 
-Ballast (lead + epoxy, ~215 g) is poured below the ledges first; the wire
-harness exits through the disc slot.
+Loading (rev 2026-11-22): carriage in from the base until the disc stops
+under the two ledges, then the ballast cup, then the cross pin (see
+nosecone.py). The harness exits through the disc slot into the cup's
+centre conduit.
 
 Run:
     python <skill>/scripts/build.py telemetry_carriage.py -o models \
@@ -134,9 +136,14 @@ results = {"telemetry_carriage": printed}
 
 # ---------------------------------------------------------------- assembly
 # Stand it up in the nose. Rot(0,-90,0) maps flat (x,y,z) -> (-z, y, x):
-# nose_z = flat X + 29 puts the disc bottom at z 26 (the ledges), plate
-# rising to z ~97. Pi face (+flat z) ends up at -nose x; symmetric anyway.
-assembly_shape = Pos(0, 0, 29.0) * Rot(0, -90, 0) * carriage
+# plate rising to z ~89. Pi face (+flat z) ends up at -nose x.
+#
+# rev 2026-11-22: the disc seats UNDER the nose ledges (it is loaded from
+# the base and cannot pass them), top face at z 21.5, held up by the
+# ballast cup + cross pin. NOSE_Z0 places flat X=0 (disc top / plate base).
+LEDGE_SEAT_Z = 21.5                      # nosecone.LEDGE_SEAT_Z
+NOSE_Z0 = LEDGE_SEAT_Z - 0.8             # disc top sits 0.8 above flat X=0
+assembly_shape = Pos(0, 0, NOSE_Z0) * Rot(0, -90, 0) * carriage
 
 # Tapered cavity dummy: r 22.4 at z 6 down to r 12 at z 140.
 cavity_wall = Pos(0, 0, 6) * (
@@ -146,10 +153,19 @@ cavity_wall = Pos(0, 0, 6) * (
 # Pi board dummy, parallel to the tilted face, in the nose frame.
 pi_flat = Rot(0, TILT, 0) * Pos(6.0 + PI_L / 2, 0, FACE + PI_STANDOFF_H + 0.8) * \
     Box(PI_L, PI_W, 1.6, align=(Align.CENTER, Align.CENTER, Align.CENTER))
-pi_in_nose = Pos(0, 0, 29.0) * Rot(0, -90, 0) * pi_flat
+pi_in_nose = Pos(0, 0, NOSE_Z0) * Rot(0, -90, 0) * pi_flat
+
+# Insertion corridor: the two ledges (0/180 deg, 14 wide, inner face r 16.5)
+# swept the full height. Nothing above the disc may touch these or the
+# carriage cannot slide in from the base.
+ledge_sweep = None
+for sx in (1, -1):
+    b = Pos(sx * 20.0, 0, LEDGE_SEAT_Z + 60.0) * Box(7.0, 14.0, 120.0)
+    ledge_sweep = b if ledge_sweep is None else ledge_sweep + b
 
 assembly = {
     "carriage": assembly_shape,
     "nose_cavity_wall": cavity_wall,
     "pi_dummy": pi_in_nose,
+    "ledge_insertion_sweep": ledge_sweep,
 }

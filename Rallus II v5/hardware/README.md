@@ -50,23 +50,42 @@ plastic. Two 6.5 mm holes through the nose wall at z=31 (90/270 deg)
 carry SMA bulkheads for the LoRa and WiFi antennas, which sit just above
 the tube rim - completely clear of the metal.
 
-Assembly order: pour ballast below the ledges (~215 g, target nose 360 g
-total) -> drop in the carriage -> Pi/LoRa/GPS bolt on -> pigtails to the
-SMAs -> nose goes on the stack like before, one 4-pin plug (5V, GND,
-UART) joins it to the blade.
+**Rev 2026-11-22 (supersedes the paragraph above where they differ).**
+No antenna holes, no poured ballast, two ledges instead of three, key pins
+on the ballast cup. Assembly, nose held tip-down:
+
+1. Glue `nose_tip` into `nose_base` (sleeve joint, epoxy).
+2. Bench: glue two 4 mm x 18 mm dowels into the sockets in the underside of
+   `nose_ballast_cup`. Plug the centre conduit and the cross tunnel with
+   tape, fill the cup to the brim with lead shot + epoxy (~135-150 g),
+   cure, weigh.
+3. Bolt Pi / LoRa / GPS to `telemetry_carriage`, solder the 78 mm antenna
+   wire, plug in the harness. Slide the carriage into the nose from the
+   base, Pi faces toward the 90/270 deg sides (the long side of the stack
+   runs along the cross-pin axis), until the disc stops under the ledges.
+4. Thread the harness through the cup's conduit, push the cup in behind
+   the disc, line the tunnel up with the two holes in the nose wall, push
+   the 5 mm x 50 mm cross pin through, flush both sides, a wrap of tape or
+   a dab of RTV to keep it.
+5. Tie the shock cord to the cross pin inside the conduit. Key pins go
+   into the servo ring sockets as the nose seats.
+
+Pull the cross pin and it all comes back out (SD card, repairs).
 
 Prints: PETG; everything is in models/ with Bambu profiles
-(rallus_plate_bambu.3mf now carries all six parts).
+(rallus_plate_bambu.3mf carries all six parts: nose base, nose tip,
+ballast cup, telemetry carriage, blade, retention ring).
 
 ## Slide-in avionics mount (PRIMARY electronics carrier)
 
 `avionics_slide_mount.py` (build123d, exports in `models/`) supersedes
 `avionics_sled.scad` as the electronics carrier. Two printed parts:
 
-- **avionics_blade** — 44 x 4 x 132 mm diametral blade. Pico 2 on standoffs
-  (USB forward, +Y face), MS5611 + W25Q128 trays and a short MAX31855 tray
-  (-Y face), battery pass-through window (pack strapped across the blade
-  with velcro through the flanking slots), BEC zip posts and the RFB jack
+- **avionics_blade** — 44 x 4 x 154 mm diametral blade. Pico 2 on standoffs
+  (USB forward, +Y face); four open pockets on the -Y face: MS5611,
+  W25Q128, MAX31855 and the ICM-42688 IMU (boards fixed with VHB or epoxy;
+  the IMU must be rigid); 33 x 59 mm battery window (flat 2S pack lies in
+  it, two velcro straps in the rail notches), BEC zip posts and the RFB jack
   tab (+Y face aft), switch bracket (knob pokes -X through the tube slot),
   TC wire hooks, shock-cord hole at the aft end.
 - **retention_ring** — clamps the blade via a key slot (1 M3 radial screw)
@@ -79,11 +98,11 @@ cage -> ring onto the blade aft end, key slot up -> tighten 3 wall screws +
 Hardware: 4x M2.5x8 (Pico), 4x M3x6 (ring), velcro strap, 2-pin JST at the
 nose shoulder (thermocouple).
 
-Tube stations (drill template updated to match): switch slot 196.5 mm,
-RFB jack 198 mm, vent 130 mm, window 60 mm, canard shafts 12 mm.
+Tube stations (drill template updated to match): switch slot 218.5 mm,
+RFB jack 220 mm, vent 130 mm, window 60 mm, canard shafts 12 mm.
 
-Print: PETG minimum, CF-nylon preferred for the ring; blade +Y face up
-as exported; ring flat as exported; no supports needed (bridges < 10 mm).
+Print: PETG minimum, CF-nylon preferred for the ring; blade as exported
+(pocket side up, standoffs down: needs supports under the blade); ring flat as exported; no supports needed (bridges < 10 mm).
 
 Print settings and material profiles are EMBEDDED in the Bambu project
 files: `models/avionics_blade_bambu.3mf` (PETG, 250/70) and
@@ -128,8 +147,8 @@ notches and a rail button hole — tape, center-punch, drill:
 | 45/135/225/315 | 12 mm | 3.2 mm canard shafts |
 | 90 | 60 mm | 26x26 mm window (drill + file) |
 | 270 | 130 mm | 3.2 mm baro vent — stays OPEN |
-| 180 | 160 mm | 9x5 mm switch slot |
-| 180 | 170 mm | 6 mm RFB jack |
+| 180 | 218.5 mm | 9x5 mm switch slot |
+| 180 | 220 mm | 6 mm RFB jack |
 | 0 | 140 mm | 3 mm LED lightpipe (optional) |
 
 Window: drill a pilot, nibble to the square, file smooth, deburr inside.

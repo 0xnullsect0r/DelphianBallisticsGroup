@@ -6,7 +6,9 @@
 // Fire path: 2S -> e-match -> N-FET (GP18) -> GND. Sense path: 2S -> match
 // -> 10k -> GND with a 47k/10k tap to ADC1. Sense current ~0.8 mA, far
 // below any no-fire rating; match present puts ~1.5 V on the tap, an open
-// circuit puts ~0 V.
+// circuit puts ~0 V. REQUIRED on the board: 10k from the FET gate to GND
+// (holds the charge safe while the Pico is in reset / BOOTSEL and the pin
+// floats) and ~100R in series with the gate.
 
 // Fire pulse deadline. Set by core 0 (pyro_fire, at apogee), cleared by
 // core 1 (pyro_tick) after the FET turns off. A stale nonzero deadline
@@ -17,7 +19,7 @@ void pyro_init(void) {
     gpio_init(PIN_PYRO_FET);
     gpio_set_dir(PIN_PYRO_FET, GPIO_OUT);
     gpio_put(PIN_PYRO_FET, false);
-    adc_gpio_init(PIN_PYRO_CONT);
+    // ADC pad setup happens in main() after adc_init().
 }
 
 bool pyro_cont_ok(void) {

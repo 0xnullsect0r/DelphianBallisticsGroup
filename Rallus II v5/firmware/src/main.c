@@ -95,7 +95,6 @@ static void core1_main(void) {
     g_sys.flash_ok = flashlog_init();
     if (!g_sys.flash_ok) g_sys.faults_core1 |= FF_FLASH_ERR;
     tc_init();
-    pyro_init();
 
     // UART link to the Pi (Pico USB console stays on stdio; the link uses
     // the raw UART0 hardware).
@@ -260,6 +259,9 @@ static bool ctrl_tick(repeating_timer_t *rt) {
 }
 
 int main(void) {
+    // Separation-charge FET driven OFF before anything else runs.
+    pyro_init();
+
     // CS pins high before bus init so nothing glitches into a command.
     const uint cs_pins[4] = { PIN_CS_IMU, PIN_CS_BARO, PIN_CS_FLASH, PIN_CS_TC };
     for (int i = 0; i < 4; i++) {
@@ -293,6 +295,7 @@ int main(void) {
 
     adc_init();
     adc_gpio_init(PIN_VBAT);
+    adc_gpio_init(PIN_PYRO_CONT);
 
     gpio_init(PIN_ARM);
     gpio_set_dir(PIN_ARM, GPIO_IN);

@@ -11,13 +11,14 @@ preferred. All dimensions in mm.
 Layout (blade-local z, 0 = forward end = seats on camera cage; tube station
 = 84 + z):
   +Y face: Pico 2 on standoffs (USB forward) z 2-53
-           BEC zip posts z 98-128 (diagonal pair)
-           RFB jack tab z 108-121 (tube hole at station ~199)
-  -Y face: MS5611 + W25Q128 trays side-by-side z 2-32
-           MAX31855 tray (short) z 33-57
-           switch bracket z 102-128 (knob -X, tube slot at station ~197)
-  through: battery window z 60-97 (battery strapped across the blade),
-           velcro slots z 57.5 / 99, TC wire hooks x +/-16 z 64 / 93
+           BEC zip posts z 120-150 (diagonal pair)
+           RFB jack tab z 130-143 (tube hole at station ~220)
+  -Y face: MS5611 + W25Q128 trays side-by-side z 0-30
+           MAX31855 tray (-X) + ICM-42688 IMU tray (+X), short, z 31-55
+           switch bracket z 122-150 (knob -X, tube slot at station ~218.5)
+  through: battery window z 60-119, 33 wide: a flat 2S pack lies IN the
+           window on the blade plane, two velcro straps round blade + pack
+           in the rail notches; TC wire hooks on the rails
 
 Everything on the blade stays inside the tube circle (r 23.4) with margin:
 deepest corners are the tray shells at r ~22.8.
@@ -40,7 +41,11 @@ FIT = 0.4                  # diametral slip clearance
 # Blade
 BLADE_W = 44.0             # across, leaves ~1.4 mm radial clearance each side
 BLADE_T = 4.0
-BAY_LEN = 132.0            # blade length; forward end = assembly datum
+# rev 2026-11-22: +22 mm. The battery window grew from 37 to 59 mm so a real
+# flat 2S pack fits (the old 20x30x35 "pack" does not exist); everything
+# aft of the window moved back by AFT_SHIFT.
+AFT_SHIFT = 22.0
+BAY_LEN = 132.0 + AFT_SHIFT  # blade length; forward end = assembly datum
 EMBED = 1.2                # how far appendage bases sink into the blade
 
 # Pico 2 (VERIFY holes against the board)
@@ -61,10 +66,13 @@ TRAY_LIP = 2.5             # front lip height retaining the board
 TRAY_WALL = 1.8
 TRAY_FLOOR = 1.2
 
-# Battery: 2S 450 mAh (VERIFY pack dims before printing)
-BAT_X, BAT_Y, BAT_Z = 20.0, 30.0, 35.0
-WIN_X = BAT_X + 3.0        # pass-through window in the blade
-WIN_Z0, WIN_Z1 = 60.0, 97.0
+# Battery: flat 2S pack lying IN the window, centred on the blade plane.
+# Envelope covers Zeee 2S 850 mAh (54 x 30 x 15, 46 g, ~3.5 h of Pi + avionics)
+# and Gens ace 2S 450 mAh (56 x 31 x 11, 28 g, ~1.8 h). Up to 57 x 32 x 17.
+BAT_X, BAT_Y, BAT_Z = 32.0, 17.0, 57.0     # width, thickness, length
+WIN_X = BAT_X + 1.0        # pass-through window in the blade
+WIN_Z0, WIN_Z1 = 60.0, 60.0 + BAT_Z + 2.0
+STRAP_W, STRAP_NOTCH = 14.0, 2.0           # velcro strap notches in the rails
 VELCRO_SLOT_L, VELCRO_SLOT_W = 25.0, 3.6
 
 # BEC
@@ -126,12 +134,19 @@ def tray_shell(cx, z0, cav_l):
 
 
 def tray_cavity(cx, z0, cav_l):
+    """Open-top pocket: walls all round, the blade face is the floor.
+
+    rev 2026-11-22: the old cavity was cut 5 mm too far toward +Y. It went
+    clean through the blade (severing the Pico standoffs above it) and left
+    the -Y side closed, so a board could only go in through the blade from
+    under the Pico. Now the pocket stops at the blade face and is open on
+    -Y: drop the board in, fix it with VHB tape or a dab of epoxy.
+    """
     shell_l = cav_l + 2 * TRAY_WALL
-    cav = Pos(cx, FACE_N + EMBED - 0.5, z0 + shell_l / 2) * \
-        Box(TRAY_CAV_W, TRAY_DEPTH + EMBED + 1, cav_l)
-    mouth = Pos(cx, FACE_N - TRAY_DEPTH - 3, z0 + shell_l / 2) * \
-        Box(TRAY_CAV_W - 2 * TRAY_LIP, 8, cav_l)
-    return cav + mouth
+    shell_h = TRAY_DEPTH + TRAY_FLOOR + TRAY_WALL
+    # Same z centre as tray_shell, so there is a wall at BOTH ends.
+    return Pos(cx, FACE_N - (shell_h + 2) / 2, z0 + shell_l / 2 - TRAY_WALL) * \
+        Box(TRAY_CAV_W, shell_h + 2, cav_l)
 
 
 # ---------------------------------------------------------------- blade
@@ -155,11 +170,17 @@ for zx in (Z_PICO0 + PICO_HOLE_INSET,
 for cx in (-9.5, +9.5):
     blade += tray_shell(cx, 2.0, TRAY_CAV_L)
     blade -= tray_cavity(cx, 2.0, TRAY_CAV_L)
-blade += tray_shell(0.0, 33.0, TRAY_CAV_L_SHORT)
-blade -= tray_cavity(0.0, 33.0, TRAY_CAV_L_SHORT)
+# rev 2026-11-22: the short row is now TWO trays. -X: MAX31855. +X: the
+# ICM-42688 IMU, which had no mount at all. The IMU must not be able to
+# move: bed it in its tray with epoxy or VHB tape, component side out, and
+# set IMU_UP_AXIS in firmware/include/config.h to the chip axis that points
+# at the nose (forward = toward z 0 here).
+for cx in (-9.5, +9.5):
+    blade += tray_shell(cx, 33.0, TRAY_CAV_L_SHORT)
+    blade -= tray_cavity(cx, 33.0, TRAY_CAV_L_SHORT)
 
 # BEC zip posts, +Y face aft, diagonal pair.
-for dx, dz in ((-7.0, 102.0), (7.0, 124.0)):
+for dx, dz in ((-7.0, 102.0 + AFT_SHIFT), (7.0, 124.0 + AFT_SHIFT)):
     blade += post(dx, dz, POST_D, POST_H, ZIP_HOLE_D)
 
 # Velcro slots flanking the battery window (clear of all brackets).
@@ -167,13 +188,21 @@ for zs in (WIN_Z0 - 2.5, WIN_Z1 + 2.0):
     blade -= Pos(0, 0, zs) * Box(VELCRO_SLOT_L, BLADE_T + 2, VELCRO_SLOT_W)
 
 # TC wire hooks on remaining +Y blade material beside the window.
-for hx in (-16.0, 16.0):
+# (On the 5.5 mm rails left beside the wider window.)
+RAIL_CX = (BLADE_W / 2 + WIN_X / 2) / 2
+for hx in (-RAIL_CX, RAIL_CX):
     for hz in (WIN_Z0 + 4.0, WIN_Z1 - 4.0):
-        blade += post(hx, hz, TC_HOOK_D, 5.0, 3.6)
+        blade += post(hx, hz, TC_HOOK_D, 5.0, 3.0)
+
+# Strap notches: two velcro straps go right round blade + pack; the notches
+# keep them inside the tube bore and stop them sliding.
+for nz in (WIN_Z0 + 18.0, WIN_Z1 - 18.0):
+    for sx in (-1, 1):
+        blade -= Pos(sx * BLADE_W / 2, 0, nz) * Box(2 * STRAP_NOTCH, BLADE_T + 2, STRAP_W)
 
 # Switch bracket, -Y face, knob toward -X through the blade edge. Kept
 # inside the tube circle: worst corner ~(15.4, -12.8) -> r 19.9.
-SW_Z0 = 102.0
+SW_Z0 = 102.0 + AFT_SHIFT
 SW_CX = -8.5
 SW_SHELL_W = SWITCH_W + 2 * SWITCH_WALL          # 15.8
 SW_SHELL_H = 14.3                                # blade center .. below body
@@ -187,7 +216,7 @@ blade -= Pos(-BLADE_W / 2 - 2.0, -6.0, SW_Z0 + SWITCH_L / 2) * \
     Box(10.0, 14.0, 12.0)
 
 # RFB jack tab, +Y face, bore along -X toward the tube wall.
-JK_Z = 114.5
+JK_Z = 114.5 + AFT_SHIFT
 jack_tab = Pos(-BLADE_W / 2 + JACK_TAB_X / 2 + 2.0, FACE_P + 3.0, JK_Z) * \
     Box(JACK_TAB_X, 6.0 + EMBED, 14.0)
 jack_tab -= Pos(-BLADE_W / 2 - 1.0, FACE_P + 3.0, JK_Z) * Rot(0, 90, 0) * \
@@ -249,8 +278,8 @@ results = {
 assembly = {
     "blade": blade,
     "ring": Pos(0, 0, BAY_LEN) * ring,
-    "tube": Pos(0, 0, -30) * ((Cylinder(25.4, 200, align=(Align.CENTER, Align.CENTER, Align.MIN))) -
-                              (Cylinder(23.4, 200, align=(Align.CENTER, Align.CENTER, Align.MIN)))),
+    "tube": Pos(0, 0, -30) * ((Cylinder(25.4, 220, align=(Align.CENTER, Align.CENTER, Align.MIN))) -
+                              (Cylinder(23.4, 220, align=(Align.CENTER, Align.CENTER, Align.MIN)))),
     "battery": Pos(0, 0, (WIN_Z0 + WIN_Z1) / 2) * Box(BAT_X - 0.8, BAT_Y - 0.8, BAT_Z - 0.8),
     "pico": Pos(0, FACE_P + STANDOFF_H + 0.8, Z_PICO0 + PICO_L / 2) * Box(PICO_W, 1.6, PICO_L),
 }
