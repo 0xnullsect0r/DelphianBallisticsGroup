@@ -349,6 +349,8 @@ def main():
     ap.add_argument("--canard", help="root,tip,span mm, e.g. 35,18,24")
     ap.add_argument("--booster", help="root,span mm, e.g. 141,60")
     ap.add_argument("--canard-sweep", action="store_true")
+    ap.add_argument("--nose", help="replace the ORK nose mass with real pieces: "
+                    "'grams@metres_from_tip,...' e.g. 80@0.19,50@0.22,150@0.267")
     args = ap.parse_args()
 
     override = None
@@ -362,6 +364,14 @@ def main():
 
     parts, ref_r = parse_rocket(args.ork, args.motor_mass, override, booster)
     label = args.ork.split("/")[-1]
+    if args.nose:
+        pieces = [tuple(float(v) for v in item.split("@"))
+                  for item in args.nose.split(",")]
+        total = sum(g for g, _ in pieces)
+        nose = next(p for p in parts if "nose" in p.name.lower())
+        nose.mass = total / 1000
+        nose.cg = sum(g * x for g, x in pieces) / total
+        label += f" + real nose {total:.0f} g @ {nose.cg:.3f} m"
     if override:
         label += f" + canards {override[0]*1000:.0f}x{override[1]*1000:.0f}x{override[2]*1000:.0f} mm"
     if booster:

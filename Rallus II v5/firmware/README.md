@@ -1,4 +1,4 @@
-# Rallus II v3 — fin-roll avionics firmware
+# Rallus II v5 — fin-roll avionics firmware
 
 Pico 2 (RP2350) flight computer for active canard roll control. Rides the
 upper section (forward of the explosive-bolt mid-break), drives 4 canards
@@ -10,9 +10,9 @@ just below the nose cone. Dual core:
 - **core 1**: MS5611 baro (~50 Hz P/T pairs), W25Q128 flash log writer,
   MAX31855 bay thermocouple (10 Hz), USB CDC command line, LED, battery ADC.
 
-Canards are driven ONLY during BOOST/COAST with v_hat in [15, 275] m/s
-(Rallus II burns out around 263 m/s / M0.78; motor is custom propellant,
-simmed against the CTI 1115J530 curve as closest equivalent). Deflection is
+Canards are driven ONLY during BOOST/COAST with v_hat in [10, 275] m/s
+(the real motor, K179 per openMotor on `Motors.ric`, burns 7.2 s and tops
+out near 180 m/s / M0.53; thresholds in `config.h` are set for it). Deflection is
 capped 15 deg below 100 m/s, tapering to 3 deg by 250 m/s. Every other
 moment the servos are commanded to exact center. The watchdog is fed only
 by the control ISR: a hung control loop resets the whole board.
@@ -58,9 +58,27 @@ The CLI command `x` reboots into BOOTSEL without touching the cable.
 | 12 | servo 1 signal   | fin 1 |
 | 14 | servo 2 signal   | fin 2 |
 | 15 | servo 3 signal   | fin 3 |
-| 16 | arm interlock    | slide switch + RBF pin in series to GND, pull-up enabled |
+| 16 | arm interlock    | slide switch and RBF jack each short GP16 to GND when SAFE, wired in PARALLEL: armed only when the switch is ON **and** the pin is pulled. Pull-up enabled |
 | 26 | battery sense    | 10k/2k divider from 2S LiPos, ADC0 |
 | 25 | status LED       | onboard |
+| 0  | UART0 TX -> Pi RXD (GPIO15) | 10 Hz JSON telemetry, 115200. GP1 (RX) unused |
+| 18 | pyro FET gate    | N-FET low side on the bolt charge. **10k gate-to-GND pulldown is mandatory** (pin floats in reset/BOOTSEL), 100R in series |
+| 27 | pyro continuity  | ADC1: FET drain -> 47k -> GP27 -> 10k -> GND, plus 10k drain -> GND (0.8 mA sense) |
+
+Module gotchas: the GY-63 (MS5611) boots in I2C mode, **tie its PS pin to
+GND** for SPI. The ICM-42688-P breakout needs its orientation declared:
+`IMU_UP_AXIS` in `config.h` names the chip axis that points at the nose
+(default +X, board flat on the blade). The ICM-42688-P tops out at +/-16 g;
+the ~18 g thrust peak clips briefly, which costs a few m/s of `v_hat` and
+nothing else.
+
+Pyro safety, as implemented: the charge fires at apogee only if at least
+12 s have passed since liftoff AND the flight gained 150 m of baro altitude
+or reached 100 m/s. Apogee itself needs two sensors to agree (baro falling
+for 5 samples with inertial speed under 40 m/s, or inertial speed under
+5 m/s with the baro no longer climbing). A bumped or dropped armed rocket
+logs `PYRO_INHIBIT` instead of firing. Still: connect the charge last, arm
+last, and treat an armed rocket with continuity as live.
 
 Power: 2S LiPo -> 5V/3A BEC -> servo rail AND Pico VSYS. 1000uF electrolytic
 across the servo rail. Logic and servo grounds tied at one point. Servo
@@ -83,6 +101,9 @@ avionics bay or the MS5611 reads trapped pressure.
    PROM CRC word; fine to fly, note it.
 3. `w` servo sweep with linkages attached but fins NOT in the airflow.
    Fins should move 0 -> +10 -> -10 -> 0 smoothly.
+   Stand the bay nose-up: `az` must read +1.0 g (if not, fix `IMU_UP_AXIS`).
+   Pyro line must say `continuity=open` with nothing connected and `OK`
+   with a spare e-match (or a 1-2 ohm resistor) across the terminals.
 4. `i` live stream: rotate the bay about its long axis by hand. `wz` should
    track your rotation. Then spin test: spin the bay steadily one way, the
    fins must deflect the SAME direction relative to the body each time you
@@ -104,7 +125,7 @@ f  finalize header b  battery         x  BOOTSEL reboot
 
 ## Flight log
 
-36-byte records to external W25Q128 (boot flash is never touched), at
+38-byte records to external W25Q128 (boot flash is never touched), at
 phase-aware rates:
 
 | Phase | Rate | Why |
@@ -133,16 +154,21 @@ python3 tools/dump_log.py -o flight.csv
 python3 tools/dump_log.py -o flight.csv --prom 46472 43953 28912 27150 32767 28673
 ```
 
-**Always dump after a flight before erasing or flying again** — a fresh
-flight overwrites from the start of flash.
+**Always dump, then erase (`e`), before the next flight.** A new flight
+appends after the old one, and only an erased chip is guaranteed to log
+without mid-flight erase stalls. After a power cut or watchdog reset the
+log is recovered automatically at the next boot (records past the last
+header checkpoint are found by scanning).
 
-Record layout (`datadefs.h`, little endian, 36 B):
+Record layout (`datadefs.h`, little endian, 38 B, log format v4):
 
 ```
 u32 t_ms | i16 ax,ay,az mg | i16 gx,gy,gz dps*10 | i32 v_hat cm/s |
 u32 d1 | u32 d2 | i16 delta deg*100 | u16 batt mV | u8 state | u8 flags |
-i16 tc degC*10 (-32768 = probe fault)
+i16 tc degC*10 (-32768 = probe fault) | u8 events | u8 reserved
 ```
+
+Events: 0x01 pyro-continuity 0x02 pyro-fired 0x08 pyro-inhibited
 
 Flags: 0x01 logq-drop 0x02 imu-err 0x04 baro-stale 0x08 flash-err
 0x10 wdt-reset 0x20 core1-hb 0x40 armed 0x80 bias-cal-ok
@@ -151,6 +177,15 @@ State: 0 PADIDLE 1 ARMED 2 BOOST 3 COAST 4 APOGEE 5 DESCENT 6 LANDED
 
 ## Tuning
 
-Gains live in `include/config.h` (`ROLL_KP`, `ROLL_KI`). Get starting values
-from `../sim/roll_sim.py` (replace the TODO-ORK placeholders with OpenRocket
-numbers first), then retune from flight logs after M3/M4.
+Gains live in `include/config.h` (`ROLL_KP` 0.3, `ROLL_KI` 1.0). They come
+from `../sim/roll_sim.py`, which flies the K179 thrust profile against
+booster-fin cant with OpenRocket's roll inertia. Retune from flight logs
+after M3/M4; if the log shows a small steady roll oscillation (linkage
+backlash), halve `ROLL_KI`.
+
+## Host tests
+
+`sh test/run.sh` builds the real `flashlog.c`, `state.c` and `control.c`
+for the PC and runs them against a simulated W25Q128 and scripted flights
+(real-motor profiles, dead baro, baro spike, tilted flight, handling bumps
+that must NOT fire the charge). Run it after any change to those files.

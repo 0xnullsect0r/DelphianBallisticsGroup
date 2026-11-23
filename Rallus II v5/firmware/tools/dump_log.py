@@ -17,14 +17,18 @@ import struct
 import sys
 import zlib
 
-RECORD_FMT = "<Ihhh hhhiIIhHBBh"   # last field: tc_c10 (v3 records)
+# v4 records (38 B): ... tc_c10, events byte, reserved byte.
+RECORD_FMT = "<Ihhh hhhiIIhHBBhBB"
 RECORD_LEN = struct.calcsize(RECORD_FMT)
-assert RECORD_LEN == 36, RECORD_LEN
+assert RECORD_LEN == 38, RECORD_LEN
+LOG_VERSION = 4
 
 # 24-byte flash header (log_meta_t), sent before the records.
 META_FMT = "<IIIhhhHHH"
 META_LEN = struct.calcsize(META_FMT)
 assert META_LEN == 24, META_LEN
+
+EVENT_NAMES = ["PYRO_CONT", "PYRO_FIRED", "GPS_FIX", "PYRO_INHIBIT"]
 
 STATE_NAMES = ["PADIDLE", "ARMED", "BOOST", "COAST", "APOGEE", "DESCENT", "LANDED"]
 
@@ -41,14 +45,17 @@ def ms5611_compensate(d1, d2, prom):
     temp = 2000 + (dt * c6 >> 23)
     off = (c2 << 16) + (dt * c4 >> 7)
     sens = (c1 << 15) + (dt * c3 >> 8)
-    p = (((d1 * sens) >> 21) - off) >> 15
-    if temp < 2000:
+    if temp < 2000:                      # MS5611-01BA03 second order
         t2 = (dt * dt) >> 31
-        off2 = (61 * (temp - 2000) ** 2) >> 4
-        sens2 = 2 * (temp - 2000) ** 2
+        off2 = (5 * (temp - 2000) ** 2) >> 1
+        sens2 = (5 * (temp - 2000) ** 2) >> 2
+        if temp < -1500:
+            off2 += 7 * (temp + 1500) ** 2
+            sens2 += (11 * (temp + 1500) ** 2) >> 1
         temp -= t2
         off -= off2
         sens -= sens2
+    p = (((d1 * sens) >> 21) - off) >> 15
     return p, temp * 0.01
 
 
@@ -92,6 +99,8 @@ def dump(ser):
     raw_meta = read_exact(ser, META_LEN)
     (magic, version, count,
      bgx, bgy, bgz, kp, ki, mflags) = struct.unpack(META_FMT, raw_meta)
+    if version != LOG_VERSION:
+        sys.exit(f"log format v{version}, this tool decodes v{LOG_VERSION}")
     if magic != 0x314E5641 or count != n:
         sys.exit(f"bad dump header: magic={magic:#x} version={version} count={count} n={n}")
 
@@ -135,7 +144,7 @@ def main():
 
     fields = ["t_ms", "ax_mg", "ay_mg", "az_mg", "gx_dps", "gy_dps", "gz_dps",
               "v_mps", "d1", "d2", "delta_deg", "batt_v", "state", "flags",
-              "tc_c"]
+              "tc_c", "events"]
     if args.prom:
         fields += ["press_pa", "temp_c", "alt_m"]
     fields.append("flag_names")
@@ -146,11 +155,13 @@ def main():
                     f"kp={meta['kp']}", f"ki={meta['ki']}"])
         w.writerow(fields)
         for (t, ax, ay, az, gx, gy, gz, v_cms, d1, d2, d_cdeg,
-             batt_mv, state, flags, tc_c10) in records:
+             batt_mv, state, flags, tc_c10, events, _rsvd) in records:
             row = [t, ax, ay, az, gx / 10, gy / 10, gz / 10, v_cms / 100,
                    d1, d2, d_cdeg / 100, batt_mv / 1000,
                    STATE_NAMES[state & 7], f"{flags:04x}",
-                   "FAULT" if tc_c10 == -32768 else tc_c10 / 10]
+                   "FAULT" if tc_c10 == -32768 else tc_c10 / 10,
+                   "|".join(n for i, n in enumerate(EVENT_NAMES)
+                            if events & (1 << i))]
             if args.prom:
                 press, temp = ms5611_compensate(d1, d2, args.prom)
                 row += [round(press, 1), round(temp, 2), round(pressure_altitude(press), 1)]

@@ -50,7 +50,7 @@ static uint8_t fl_rdsr1(void) {
 
 // Busy-wait for write/erase completion. Typical page program is <1 ms,
 // sector erase ~45 ms; runs on core 1 where stalling the baro tick briefly
-// is acceptable (log queue holds 8 s of data).
+// is acceptable (log queue holds ~2 s of data at 1 kHz).
 static bool fl_wait_busy(uint32_t timeout_ms) {
     uint32_t start = to_ms_since_boot(get_absolute_time());
     while (fl_rdsr1() & 0x01) {
@@ -133,8 +133,23 @@ bool flashlog_init(void) {
     if (jedec != ((uint32_t)FL_JEDEX_MFR << 16 | FL_JEDEC_MEM_16M)) return false;
 
     fl_read_bytes(0, (uint8_t *)&meta, sizeof meta);
-    if (meta.magic == LOG_MAGIC && meta.version == LOG_VERSION) {
+    if (meta.magic == LOG_MAGIC && meta.version == LOG_VERSION &&
+        meta.records <= (FLASH_SIZE_BYTES - FLASH_LOG_BASE) / sizeof(log_record_t)) {
         fl_count = meta.records;
+        // The header count lags the data by up to one checkpoint (power cut,
+        // watchdog reset in flight). Walk forward to the first blank record
+        // so nothing is lost and nothing gets programmed over old data.
+        uint32_t max_n = (FLASH_SIZE_BYTES - FLASH_LOG_BASE) / sizeof(log_record_t);
+        while (fl_count < max_n) {
+            uint8_t raw[sizeof(log_record_t)];
+            fl_read_bytes(FLASH_LOG_BASE + fl_count * sizeof(log_record_t),
+                          raw, sizeof raw);
+            bool blank = true;
+            for (uint32_t i = 0; i < sizeof raw; i++)
+                if (raw[i] != 0xFF) { blank = false; break; }
+            if (blank) break;
+            fl_count++;
+        }
     } else {
         memset(&meta, 0, sizeof meta);
         fl_count = 0;
@@ -146,6 +161,44 @@ bool flashlog_init(void) {
     return true;
 }
 
+// True if the 4 KB sector at addr is already erased. ~3.5 ms at 10 MHz
+// versus 45-400 ms for an erase: with the log erased on the ground ('e'),
+// no erase ever has to run in flight and the 1 kHz stream cannot back up.
+static bool fl_sector_blank(uint32_t addr) {
+    uint8_t tmp[256];
+    for (uint32_t off = 0; off < 4096; off += sizeof tmp) {
+        fl_read_bytes(addr + off, tmp, sizeof tmp);
+        for (uint32_t i = 0; i < sizeof tmp; i++)
+            if (tmp[i] != 0xFF) return false;
+    }
+    return true;
+}
+
+// Byte-stream writer. A page program must never cross a 256-byte page
+// boundary (the chip wraps inside the page and overwrites its start), and
+// records are 38 bytes, so they are split across pages here.
+static bool fl_put(const uint8_t *src, uint32_t len) {
+    while (len) {
+        if (page_len == 0) {
+            page_addr = fl_offset;
+            if ((page_addr & 0xFFF) == 0 && !fl_sector_blank(page_addr)) {
+                if (!fl_erase_sector(page_addr)) return false;
+            }
+        }
+        uint32_t room = 256 - ((page_addr + page_len) & 0xFF);
+        uint32_t n = len < room ? len : room;
+        memcpy(page_buf + page_len, src, n);
+        page_len  += n;
+        fl_offset += n;
+        src += n;
+        len -= n;
+        if (((page_addr + page_len) & 0xFF) == 0) {
+            if (!fl_program_page()) return false;
+        }
+    }
+    return true;
+}
+
 bool flashlog_append(const log_record_t *r) {
     if (!ok) return false;
     if (full) return false;
@@ -154,30 +207,13 @@ bool flashlog_append(const log_record_t *r) {
         return false;
     }
 
-    // Flush the page when the next record will not fit, then set up a new
-    // page, erasing its sector if we are crossing a boundary.
-    if (page_len > 0 && page_len + sizeof(log_record_t) > 256) {
-        if (!fl_program_page()) { ok = false; return false; }
-    }
-    if (page_len == 0) {
-        page_addr = fl_offset;
-        if ((page_addr & 0xFFF) == 0) {
-            if (!fl_erase_sector(page_addr)) { ok = false; return false; }
-        }
-    }
-
-    memcpy(page_buf + page_len, r, sizeof *r);
-    page_len += sizeof *r;
-    fl_offset += sizeof *r;
+    if (!fl_put((const uint8_t *)r, sizeof *r)) { ok = false; return false; }
     fl_count++;
 
-    if (page_len == 256) {
-        if (!fl_program_page()) { ok = false; return false; }
-    }
-
     // Checkpoint the header every 256 KB so a power loss mid-flight costs at
-    // most ~7k records of the count, never the whole index. The 45 ms sector
-    // erase blocks this core briefly; the log queue rides it out.
+    // most ~7k records of the count (and those are recovered by the scan at
+    // the next boot). The 45 ms sector erase blocks this core briefly; the
+    // log queue rides it out.
     if (fl_offset - meta_ckpt_offset >= META_CKPT_BYTES) {
         meta_ckpt_offset = fl_offset;
         if (!fl_write_header()) { ok = false; return false; }

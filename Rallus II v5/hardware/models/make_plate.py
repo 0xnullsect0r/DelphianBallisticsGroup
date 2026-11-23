@@ -1,4 +1,4 @@
-"""Plate all five Rallus v4 printed parts into one 3MF.
+"""Plate all six Rallus v5 printed parts into one 3MF.
 
 Loads the per-part STLs (already in their individual print orientations),
 lays them out in one row with gaps, and exports as a single plate plus a
@@ -14,7 +14,7 @@ from build123d import *
 from printlib import *
 
 HERE = Path(__file__).parent
-PARTS = ["nose_base", "nose_tip", "nose_base_plug", "telemetry_carriage",
+PARTS = ["nose_base", "nose_tip", "nose_ballast_cup", "telemetry_carriage",
          "avionics_blade", "retention_ring"]
 GAP = 8.0
 

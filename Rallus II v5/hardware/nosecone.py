@@ -7,11 +7,12 @@ nose (spigot + key pins) -> canard servo ring (counterbore + pin sockets)
 the tube). The cone's own base rim seats on the tube end; pull-out and
 rotation are blocked by the pins and the retention ring.
 
-Ballast: the cavity (z 6..200, open at the base) is filled with lead shot
-+ epoxy through the base, then the printed base plug is glued into the
-spigot bore. Target assembled mass ~360 g (print ~75 g + ~285 g ballast)
-to preserve the CG and 2.48/2.84 cal margins from the V3 sims. Mass is
-tunable by ballast fill height; verify on a scale before flight.
+Ballast (rev 2026-11-22): NOT poured in place. A printed cup
+(`nose_ballast_cup`) is filled with lead shot + epoxy on the bench, slides
+into the base under the telemetry carriage and is locked by a 5 mm cross
+pin; pull the pin to get everything back out. Target finished nose mass
+~280-315 g (see PLAN "v5 audit"); verify on a scale and re-run
+sim/stability.py --nose with the real numbers.
 
 Print orientation: tip down (as exported after the flip), PETG or ASA,
 0.2 mm layers, 4 walls, 10% infill, NO supports (cone overhang is ~5 deg).
@@ -54,9 +55,6 @@ BAFFLE_T = 2.4
 CORD_HOLE_D = 5.0
 CORD_HOLE_R = 12.0
 
-# Base plug (separate part, glued in after ballasting)
-PLUG_T = 4.0
-PLUG_D = SPIGOT_D - 2 * SPIGOT_WALL - 0.6
 
 
 def r_out(z):
@@ -101,38 +99,47 @@ with BuildPart() as base_builder:
 
 nose_base = base_builder.part
 
-# v5: the internal baffle is gone - the telemetry carriage occupies that
-# volume. Three ledge ribs now carry the carriage at a fixed height; the
-# ballast volume is below them (fill lead/epoxy only up to the ledges).
-LEDGE_Z = 23.0
-for ang in (0, 120, 240):
+# v5 (rev 2026-11-22): the telemetry carriage lives in the cavity. Loading
+# order is everything-from-the-base: carriage first (its disc stops UNDER
+# two ledges), then the removable ballast cup, then one cross pin through
+# the nose wall and the cup locks the lot.
+#
+# Two ledges only, at 0/180 deg (the +/-X sides). The loaded carriage is an
+# 18 x 30 mm slab in plan (plate + Pi + LoRa, long side along Y); ledges on
+# the X sides are the only place it can slide past. Three ledges at 120 deg
+# (the first v5 layout) blocked the Pi corners.
+LEDGE_Z = 23.0           # ledge centre; underside (disc seat) at 21.5
+LEDGE_T = 3.0
+LEDGE_W = 14.0
+LEDGE_SEAT_Z = LEDGE_Z - LEDGE_T / 2
+for ang in (0, 180):
     # Buried well into the sloped shell wall (no tangent slivers): inner
-    # face reaches inward to carry the carriage, outer part merges with
-    # the wall solid.
-    nose_base += Rot(0, 0, ang) * Pos(20.0, 0, LEDGE_Z) * Box(7.0, 8.0, 3.0)
+    # face reaches r 16.5 to catch the r 20 carriage disc.
+    # Trimmed to stay 0.4 mm inside the outer skin (the box corners would
+    # otherwise break through the cone as bumps).
+    ledge = Rot(0, 0, ang) * Pos(20.0, 0, LEDGE_Z) * Box(7.0, LEDGE_W, LEDGE_T)
+    nose_base += ledge & (Pos(0, 0, LEDGE_Z) *
+                          Cylinder(r_out(LEDGE_Z + LEDGE_T / 2) - 0.4, LEDGE_T + 2))
 
-# Antenna holes: two 6.5 mm radial holes through the shell at z = 31 for
-# SMA bulkheads (LoRa + WiFi pigtails), at 90 and 270 deg. Above the
-# ballast, clear of the canard shafts and camera window (both live in the
-# metal tube below).
-from math import radians as _rad
-SMA_Z = 31.0
-for ang in (90, 270):
-    a = _rad(ang)
-    r_mid = (r_out(SMA_Z) + r_in(SMA_Z)) / 2
-    nose_base -= Pos(cos(a) * r_mid, sin(a) * r_mid, SMA_Z) * \
-                 Rot(0, 0, ang) * Rot(0, 90, 0) * Cylinder(3.25, 12.0)
+# No antenna holes: the LoRa antenna is a 78 mm wire inside the nose and the
+# Pi uses its on-board WiFi antenna. (Whips in the airstream just ahead of
+# the canards were a bad idea; the first v5 revision had two SMA holes.)
 
-# Key pins at 0/180 deg.
-for i in range(PIN_COUNT):
-    x = PIN_R * (1 if i == 0 else -1)
-    nose_base += Pos(x, 0, -SPIGOT_DEPTH - PIN_LEN + PIN_LEN / 2) * \
-        Cylinder(PIN_D / 2, PIN_LEN)
+# Key pins (anti-rotation into the canard servo ring sockets at r 17):
+# these used to be modeled here, hanging in the open spigot bore attached
+# to nothing - they exported as two loose cylinders. They now live on the
+# ballast cup, which closes the bore and is locked to the nose by the
+# cross pin (see below).
 
-# Shock cord hole: one through-bore along X across the base annulus.
-nose_base = cut(nose_base, Pos(0, 0, BASE_SOLID / 2) *
-                Rot(0, 90, 0) * Cylinder(CORD_HOLE_D / 2, CONE_R * 2 + 4),
-                "shock cord hole")
+# Cross-pin bore along Y (90/270 deg, clear of the key pins on X) through
+# both sides of the base at z = 3. A 5 mm
+# pin (CF rod / dowel, cut flush, 50 mm) goes through the nose wall, through
+# the ballast cup's tunnel, and out the other side: it retains the cup and
+# is the shock-cord anchor (tie the cord to the pin inside the conduit).
+PIN_Z = BASE_SOLID / 2
+nose_base = cut(nose_base, Pos(0, 0, PIN_Z) *
+                Rot(90, 0, 0) * Cylinder(CORD_HOLE_D / 2, CONE_R * 2 + 4),
+                "cross pin bore")
 
 nose_base = nose_base.clean()
 
@@ -169,9 +176,60 @@ nose_tip = tip_builder.part.clean()
 # Assembled nose (for the interface checks and renders).
 nose = nose_base + nose_tip
 
-# ---------------------------------------------------------------- base plug
-plug = Cylinder(PLUG_D / 2, PLUG_T,
-                align=(Align.CENTER, Align.CENTER, Align.MIN))
+# ---------------------------------------------------------------- ballast cup
+# Replaces the poured-in-place ballast and the glued base plug. A printed
+# cup, filled with lead shot + epoxy ON THE BENCH, slides up the spigot bore
+# under the carriage disc and is locked by the cross pin. Pull the pin and
+# everything comes back out: the Pi and its SD card stay serviceable.
+#   - centre conduit: the nose harness (and its plug) passes through
+#   - cross tunnel at PIN_Z: sleeve for the 5 mm pin, sealed from the lead
+# Nose frame: floor at z = -SPIGOT_DEPTH (flush with the spigot end), rim
+# just under the carriage disc.
+CARRIAGE_DISC_T = 3.0                      # telemetry_carriage.DISC_T
+CUP_BORE_R = SPIGOT_D / 2 - SPIGOT_WALL    # spigot bore radius, 20.8
+CUP_R = CUP_BORE_R - 0.3                   # slip fit
+CUP_Z0 = -SPIGOT_DEPTH
+CUP_Z1 = LEDGE_SEAT_Z - CARRIAGE_DISC_T - 0.3
+CUP_H = CUP_Z1 - CUP_Z0
+CUP_WALL = 1.2
+CUP_FLOOR = 1.6
+CONDUIT_ID = 13.0                          # passes a 4-pin JST-XH plug
+CONDUIT_OD = CONDUIT_ID + 2 * CUP_WALL
+TUNNEL_ID = CORD_HOLE_D + 0.4
+TUNNEL_OD = TUNNEL_ID + 2 * CUP_WALL
+
+_cyl = lambda r, h: Cylinder(r, h, align=(Align.CENTER, Align.CENTER, Align.MIN))
+cup = _cyl(CUP_R, CUP_H) - Pos(0, 0, CUP_FLOOR) * _cyl(CUP_R - CUP_WALL, CUP_H)
+cup += _cyl(CONDUIT_OD / 2, CUP_H)                                  # conduit wall
+_tunnel_z = PIN_Z - CUP_Z0
+_tunnel = Pos(0, 0, _tunnel_z) * Rot(90, 0, 0) * Cylinder(TUNNEL_OD / 2, 2 * CUP_R - 1.0)
+# Tunnel sleeve, with a web down to the floor so it prints without support.
+cup += _tunnel & _cyl(CUP_R - 0.2, CUP_H)
+cup += Pos(0, 0, CUP_FLOOR / 2 + _tunnel_z / 2) * Box(TUNNEL_OD * 0.7, 2 * CUP_R - 2.0, _tunnel_z) \
+    & _cyl(CUP_R - 0.2, CUP_H)
+# Key-pin sockets: two bosses inside the cup at r PIN_R (0/180 deg) with a
+# blind hole from the underside. Glue in 4 mm x 18 mm dowels (steel dowel
+# pin, CF rod, or a cut M4 screw shank); 12 mm sticks out into the servo
+# ring sockets.
+KEY_SOCKET_DEPTH = 9.0
+for sx in (1, -1):
+    cup += (Pos(sx * PIN_R, 0, 0) * _cyl(PIN_D / 2 + 1.8, CUP_FLOOR + KEY_SOCKET_DEPTH + 1.2)) \
+        & _cyl(CUP_R - 0.2, CUP_H)
+    cup = cut(cup, Pos(sx * PIN_R, 0, -1) * _cyl(PIN_D / 2 + 0.05, KEY_SOCKET_DEPTH + 1),
+              "key pin socket")
+cup = cut(cup, Pos(0, 0, -1) * _cyl(CONDUIT_ID / 2, CUP_H + 2), "harness conduit")
+cup = cut(cup, Pos(0, 0, _tunnel_z) * Rot(90, 0, 0) * Cylinder(TUNNEL_ID / 2, 2 * CUP_R + 4),
+          "pin tunnel")
+cup = cup.clean()
+
+# Lead fill volume (for the mass budget printed at build time).
+_fill = (Pos(0, 0, CUP_FLOOR) * _cyl(CUP_R - CUP_WALL, CUP_H - CUP_FLOOR)) - cup \
+    - _cyl(CONDUIT_OD / 2, CUP_H + 1) \
+    - Pos(0, 0, _tunnel_z) * Rot(90, 0, 0) * Cylinder(TUNNEL_OD / 2, 2 * CUP_R + 4)
+BALLAST_CM3 = _fill.volume / 1000.0
+print(f"ballast cup: {CUP_H:.1f} mm tall, fill volume {BALLAST_CM3:.1f} cm3 "
+      f"-> ~{BALLAST_CM3 * 6.8:.0f} g lead shot + epoxy (6.8 g/cm3), "
+      f"~{BALLAST_CM3 * 7.6:.0f} g if tamped fine shot")
 
 # ---------------------------------------------------------------- print orientation
 # Both cone pieces print "pointy end down" (5 deg overhang, features on
@@ -186,13 +244,20 @@ printed_tip = Pos(0, 0, -printed_tip.bounding_box().min.Z) * printed_tip
 results = {
     "nose_base": printed_base,
     "nose_tip": printed_tip,
-    "nose_base_plug": plug,
+    "nose_ballast_cup": cup,          # prints floor down, as modeled
 }
 
 # Assembly in the use frame: nose over the tube shell and dummies of the
 # canard servo ring as designed (counterbored top + key pin sockets).
 assembly = {
     "nose": nose,
+    "ballast_cup": Pos(0, 0, CUP_Z0) * cup,
+    "key_pins": Pos(PIN_R, 0, CUP_Z0 - PIN_LEN) * _cyl(PIN_D / 2 - 0.05, PIN_LEN + KEY_SOCKET_DEPTH - 0.2)
+                + Pos(-PIN_R, 0, CUP_Z0 - PIN_LEN) * _cyl(PIN_D / 2 - 0.05, PIN_LEN + KEY_SOCKET_DEPTH - 0.2),
+    "cross_pin": Pos(0, 0, PIN_Z) * Rot(90, 0, 0) * Cylinder(CORD_HOLE_D / 2 - 0.15, 50.0),
+    "carriage_disc": Pos(0, 0, LEDGE_SEAT_Z - CARRIAGE_DISC_T) * (
+        Cylinder(20.0, CARRIAGE_DISC_T, align=(Align.CENTER, Align.CENTER, Align.MIN)) -
+        Pos(0, 0, -1) * Cylinder(6.5, CARRIAGE_DISC_T + 2, align=(Align.CENTER, Align.CENTER, Align.MIN))),
     # tube ends AT the cone seating plane
     "tube": Pos(0, 0, -60) * ((Cylinder(25.4, 60, align=(Align.CENTER, Align.CENTER, Align.MIN))) -
                               (Cylinder(23.4, 60, align=(Align.CENTER, Align.CENTER, Align.MIN)))),

@@ -1,0 +1,17 @@
+# Rallus II companion service. Install:
+#   sudo cp rallus.service /etc/systemd/system/ && sudo systemctl enable --now rallus
+# Ground tracker: add  Environment=GROUND=1  under [Service] (or use
+#   sudo systemctl edit rallus).
+[Unit]
+Description=Rallus II telemetry / tracker
+After=network.target
+
+[Service]
+WorkingDirectory=/home/pi/avionics-pi
+ExecStart=/usr/bin/python3 /home/pi/avionics-pi/service.py
+Restart=always
+RestartSec=2
+User=root
+
+[Install]
+WantedBy=multi-user.target

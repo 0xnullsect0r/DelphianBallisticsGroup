@@ -14,18 +14,42 @@
 #define ICM_ADDR_PWR_MGMT0       0x4E   // bank 0
 #define ICM_ADDR_DEVICE_CONFIG   0x11   // bank 0
 #define ICM_ADDR_ACCEL_DATAX1    0x1F   // bank 0, 12 bytes through gyro Z
-#define ICM_ADDR_GYRO_CONFIG0    0x01   // bank 2
-#define ICM_ADDR_ACCEL_CONFIG0   0x03   // bank 2
+#define ICM_ADDR_GYRO_CONFIG0    0x4F   // bank 0: FS_SEL[7:5], ODR[3:0]
+#define ICM_ADDR_ACCEL_CONFIG0   0x50   // bank 0: FS_SEL[7:5], ODR[3:0]
+#define ICM_ODR_1KHZ             0x06
 
-// Sensitivities for the configured ranges: gyro +/-2000 dps, accel +/-32 g.
+// Sensitivities for the configured ranges: gyro +/-2000 dps, accel +/-16 g.
+// +/-16 g is the LARGEST range the ICM-42688-P has (the +/-32 g part is the
+// ICM-42686-P). The motor peaks ~18 g, so az clips for a fraction of the
+// burn; v_hat reads a few m/s low, which only nudges the gain schedule.
 #define GYRO_LSB_PER_DPS         16.4f
-#define ACCEL_LSB_PER_G          1024.0f
+#define ACCEL_LSB_PER_G          2048.0f
 
-// Mount remap: change here if the Pico sits in the sled rotated. Default:
-// chip +Z (top face of the Pico) points up the rocket axis, so chip gz is
-// the body roll rate.
+// Mount remap: chip axes -> body axes, body +Z = up the rocket (toward the
+// nose), so body gz is the roll rate and body az reads +1 g on the pad.
+// Selected by IMU_UP_AXIS in config.h; each case is a proper rotation.
+static void remap3(float *v) {
+    float x = v[0], y = v[1], z = v[2];
+#if   IMU_UP_AXIS == 1      // chip +X toward the nose
+    v[0] = y;  v[1] = z;  v[2] = x;
+#elif IMU_UP_AXIS == -1     // chip -X toward the nose
+    v[0] = z;  v[1] = y;  v[2] = -x;
+#elif IMU_UP_AXIS == 2      // chip +Y toward the nose
+    v[0] = z;  v[1] = x;  v[2] = y;
+#elif IMU_UP_AXIS == -2     // chip -Y toward the nose
+    v[0] = x;  v[1] = z;  v[2] = -y;
+#elif IMU_UP_AXIS == 3      // chip +Z toward the nose
+    (void)x; (void)y; (void)z;
+#elif IMU_UP_AXIS == -3     // chip -Z toward the nose
+    v[0] = y;  v[1] = x;  v[2] = -z;
+#else
+#error "IMU_UP_AXIS must be +/-1 (X), +/-2 (Y) or +/-3 (Z)"
+#endif
+}
+
 static void imu_remap(float *g, float *a) {
-    (void)g; (void)a;  // identity
+    remap3(g);
+    remap3(a);
 }
 
 static void imu_cs(bool high) { gpio_put(PIN_CS_IMU, high); }
@@ -38,12 +62,13 @@ static void imu_wreg(uint8_t reg, uint8_t val) {
 }
 
 static uint8_t imu_rreg(uint8_t reg) {
-    uint8_t tx[1] = { (uint8_t)(reg | 0x80u) };
-    uint8_t rx[1] = { 0 };
+    // Two bytes: address out, then the data clocks back on the second.
+    uint8_t tx[2] = { (uint8_t)(reg | 0x80u), 0 };
+    uint8_t rx[2] = { 0, 0 };
     imu_cs(false);
-    spi_write_read_blocking(spi0, tx, rx, 1);
+    spi_write_read_blocking(spi0, tx, rx, 2);
     imu_cs(true);
-    return rx[0];
+    return rx[1];
 }
 
 static void imu_burst(uint8_t reg, uint8_t *dst, uint len) {
@@ -74,13 +99,14 @@ bool imu_init(void) {
     imu_wreg(ICM_ADDR_PWR_MGMT0, 0x0F);
     sleep_ms(50);
 
-    imu_bank(2);
-    // ODR 1 kHz (0b101 << 5), UI filter bypass (0b000 << 2), gyro +/-2000 dps (0b00).
-    imu_wreg(ICM_ADDR_GYRO_CONFIG0, (0x05u << 5) | (0x00u << 2) | 0x00u);
-    // ODR 1 kHz, filter bypass, accel +/-32 g (0b10).
-    imu_wreg(ICM_ADDR_ACCEL_CONFIG0, (0x05u << 5) | (0x00u << 2) | 0x02u);
-    imu_bank(0);
+    // Gyro +/-2000 dps (FS_SEL 0), accel +/-16 g (FS_SEL 0), both 1 kHz ODR.
+    imu_wreg(ICM_ADDR_GYRO_CONFIG0,  (0x00u << 5) | ICM_ODR_1KHZ);
+    imu_wreg(ICM_ADDR_ACCEL_CONFIG0, (0x00u << 5) | ICM_ODR_1KHZ);
     sleep_ms(20);
+
+    // Read back: a config that did not stick means a bad bus, not a flyable IMU.
+    if (imu_rreg(ICM_ADDR_GYRO_CONFIG0)  != ICM_ODR_1KHZ) return false;
+    if (imu_rreg(ICM_ADDR_ACCEL_CONFIG0) != ICM_ODR_1KHZ) return false;
     return true;
 }
 
@@ -95,6 +121,7 @@ bool imu_read(imu_sample_t *out) {
         if (raw[i] != 0xFF) all_ff = false;
     }
     if (all_zero || all_ff) {
+        memset(out, 0, sizeof *out);   // never hand stack garbage downstream
         out->valid = false;
         return false;
     }

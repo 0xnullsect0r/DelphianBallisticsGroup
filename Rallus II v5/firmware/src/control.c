@@ -76,7 +76,14 @@ int16_t ctrl_step(flight_state_t st, const imu_sample_t *raw, uint32_t t_ms) {
 
     // v_hat: proper axial accel minus gravity, clamped. Vertical-flight
     // approximation, good enough for gain scheduling and apogee cross-check.
-    v_hat += (az_g * G_MPS2 - G_MPS2) * CTRL_DT;
+    // On the pad it is held at zero unless the liftoff threshold is being
+    // crossed: otherwise accelerometer offset integrates for minutes while
+    // armed and the gain schedule starts the flight tens of m/s wrong.
+    if (st < ST_BOOST && az_g < LIFTOFF_G) {
+        v_hat = 0.0f;
+    } else if (raw->valid) {
+        v_hat += (az_g * G_MPS2 - G_MPS2) * CTRL_DT;
+    }
     if (v_hat < 0.0f)    v_hat = 0.0f;
     if (v_hat > V_HAT_MAX) v_hat = V_HAT_MAX;
 

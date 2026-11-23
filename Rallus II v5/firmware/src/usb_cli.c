@@ -8,6 +8,7 @@
 #include "main.h"
 #include "pico/bootrom.h"
 #include "pico/stdlib.h"
+#include "pico/stdio_usb.h"
 #include <stdio.h>
 
 static const char *state_name[7] = {
@@ -45,9 +46,13 @@ static void print_status(void) {
     read_status(&st);
     baro_shared_t b;
     read_baro(&b);
-    printf("state=%s wz=%.1fdps v=%.1fm/s d=%+.2fdeg vb=%umV\n",
-           state_name[st.state & 7],
+    printf("state=%s az=%.2fg wz=%.1fdps v=%.1fm/s d=%+.2fdeg vb=%umV\n",
+           state_name[st.state & 7], st.az_mg * 0.001f,
            st.gz_dps10 * 0.1f, st.v_mps, st.delta_cdeg * 0.01f, st.batt_mv);
+    printf("pyro: continuity=%s fired=%s inhibited=%s\n",
+           (g_sys.events & EV_PYRO_CONT) ? "OK" : "open",
+           (g_sys.events & EV_PYRO_FIRED) ? "YES" : "no",
+           (g_sys.events & EV_PYRO_INHIBIT) ? "YES" : "no");
     printf("baro seq=%lu p=%.0fPa alt=%.1fm  log=%lu recs, q=%lu, dropped=%lu, flash=%s promcrc=%s\n",
            (unsigned long)b.seq, b.press_pa, b.alt_m,
            (unsigned long)flashlog_count(), (unsigned long)logq_count(),
@@ -83,6 +88,9 @@ static void bench_sweep(void) {
 static void cmd_dump(void) {
     uint32_t n = flashlog_count();
     printf("!DUMP %lu\n", (unsigned long)n);
+    fflush(stdout);
+    // Binary section: stdio would otherwise turn every 0x0A into 0x0D 0x0A.
+    stdio_set_translate_crlf(&stdio_usb, false);
 
     // Full 24-byte meta header, same struct the ground tool decodes.
     log_meta_t m;
@@ -96,6 +104,8 @@ static void cmd_dump(void) {
     log_record_t rec;
     for (uint32_t i = 0; i < n; i++) {
         if (!flashlog_read(i, &rec)) {
+            fflush(stdout);
+            stdio_set_translate_crlf(&stdio_usb, true);
             printf("\n!READERR at %lu\n", (unsigned long)i);
             return;
         }
@@ -105,6 +115,7 @@ static void cmd_dump(void) {
 
     fwrite(&crc, 4, 1, stdout);
     fflush(stdout);
+    stdio_set_translate_crlf(&stdio_usb, true);
     printf("\n!END crc=%08lx n=%lu\n", (unsigned long)crc, (unsigned long)n);
 }
 
@@ -127,8 +138,8 @@ void usb_cli_poll(uint32_t now_ms) {
         last_stream_ms = now_ms;
         status_shared_t st;
         read_status(&st);
-        printf("st=%s wz=%.1f v=%.1f d=%+.2f vb=%u fl=0x%04x\n",
-               state_name[st.state & 7],
+        printf("st=%s az=%.2f wz=%.1f v=%.1f d=%+.2f vb=%u fl=0x%04x\n",
+               state_name[st.state & 7], st.az_mg * 0.001f,
                st.gz_dps10 * 0.1f, st.v_mps, st.delta_cdeg * 0.01f,
                st.batt_mv, st.flags);
     }

@@ -25,6 +25,7 @@ typedef enum {
 #define EV_PYRO_CONT    (1u << 0)   // separation charge continuity reads OK
 #define EV_PYRO_FIRED   (1u << 1)   // the Pico fired the explosive bolts
 #define EV_GPS_FIX      (1u << 2)   // reserved: Pi reported a GPS fix
+#define EV_PYRO_INHIBIT (1u << 3)   // apogee seen but the fire lockout said no
 
 // One flight log sample. 38 bytes, packed.
 typedef struct __attribute__((packed)) {

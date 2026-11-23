@@ -7,8 +7,7 @@
 #include <string.h>
 
 // MS5611-01BA on SPI1, mode 0. Datasheet compensation, first and second
-// order (the sub -1500 season correction is omitted: never that cold in
-// flight, noted for completeness).
+// order. GY-63 breakouts default to I2C: tie the PS pin to GND for SPI.
 
 #define MS_CMD_RESET        0x1E
 #define MS_CMD_CONV_D1_4096 0x48
@@ -78,18 +77,25 @@ static void ms_compensate(uint32_t d1, uint32_t d2,
     int64_t temp = 2000 + ((dt * (int64_t)prom[6]) >> 23);
     int64_t off  = ((int64_t)prom[2] << 16) + ((dt * (int64_t)prom[4]) >> 7);
     int64_t sens = ((int64_t)prom[1] << 15) + ((dt * (int64_t)prom[3]) >> 8);
-    int64_t p    = (((int64_t)d1 * sens) >> 21) - off;
-    p >>= 15;
 
+    // Second order (MS5611-01BA03 constants, NOT the MS5607 ones), applied
+    // BEFORE the pressure is computed. Matters below 20 degC, i.e. every
+    // cold-morning launch and most of the climb.
     if (temp < 2000) {
+        int64_t d     = temp - 2000;
         int64_t t2    = (dt * dt) >> 31;
-        int64_t off2  = (61 * (temp - 2000) * (temp - 2000)) >> 4;
-        int64_t sens2 = 2 * (temp - 2000) * (temp - 2000);
-        // temp < -1500 (-150 degC) extra correction intentionally omitted.
+        int64_t off2  = (5 * d * d) >> 1;
+        int64_t sens2 = (5 * d * d) >> 2;
+        if (temp < -1500) {
+            int64_t e = temp + 1500;
+            off2  += 7 * e * e;
+            sens2 += (11 * e * e) >> 1;
+        }
         temp -= t2;
         off  -= off2;
         sens -= sens2;
     }
+    int64_t p = ((((int64_t)d1 * sens) >> 21) - off) >> 15;
 
     *press_pa = (float)p;
     *temp_c   = (float)temp * 0.01f;
