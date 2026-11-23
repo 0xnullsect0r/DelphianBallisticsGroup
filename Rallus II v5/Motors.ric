@@ -71,10 +71,10 @@ data:
     divAngle: 15.0
     efficiency: 0.88
     erosionCoeff: 0.0
-    exit: 0.017827357632715268
+    exit: 0.0195280751
     slagCoeff: 0.0
-    throat: 0.008128016256032513
-    throatLength: 0.0031750063500127004
+    throat: 0.0081280163
+    throatLength: 0.0031750064
   propellant:
     density: 1757.6735598840764
     name: Merp. - KNER
