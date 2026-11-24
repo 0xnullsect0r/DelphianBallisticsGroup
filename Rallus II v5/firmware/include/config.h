@@ -62,7 +62,7 @@
 // long enough since liftoff AND (real altitude gained OR real speed reached).
 // Without this a 3 g handling bump on an armed rocket walks the state
 // machine straight to "apogee" and fires the bolts in someone's hands.
-#define PYRO_LOCKOUT_MS    12000     // min time liftoff -> fire (7 s burn, sim apogee 20-26 s)
+#define PYRO_LOCKOUT_MS    12000     // min time liftoff -> fire (3-5 s burn, OpenRocket apogee 17-18.5 s)
 #define PYRO_MIN_ALT_M     150.0f    // baro gain above the pad, or...
 #define PYRO_MIN_VPEAK     100.0f    // ...peak v_hat, m/s
 
@@ -88,10 +88,10 @@
 #define ARM_MAX_BIAS_DPS    50.0f    // refuse to fly with a crazy bias
 #define ARM_MIN_VBAT_MV     6800
 #define PAD_TIMEOUT_MS      300000
-// Liftoff: the real motor (openMotor on Motors.ric: K179, 7.2 s burn)
-// only pushes 3.7 g at ignition, so the old 3 g threshold sat right on the
-// thrust level. 2 g held for 100 ms; false triggers from handling are made
-// harmless by the pyro lockout below, not by this threshold.
+// Liftoff: 60/40 KNER motor (Motors.ric, openMotor J323 nominal) gives
+// ~5.4 g at ignition, but only ~3 g if the propellant burns at the slow end
+// of the estimate. 2 g held for 100 ms covers both; false triggers from
+// handling are made harmless by the pyro lockout below, not by this.
 #define LIFTOFF_G           2.0f
 #define LIFTOFF_MS          100
 #define BURNOUT_G           0.5f
@@ -106,8 +106,8 @@
 #define LANDED_BAND_M       0.3f
 #define LANDED_MS           5000
 #define POST_LANDED_LOG_MS  10000
-// Authority window. Real motor in OpenRocket: ~13 m/s off the rail,
-// ~180 m/s / M0.53 at burnout (up to ~250 m/s with a tighter throat).
+// Authority window. J323 in OpenRocket: ~17 m/s off the rail, 170 m/s /
+// M0.50 at burnout (136-192 m/s across the burn-rate range).
 // AUTH_V_MIN is below rail-exit speed on purpose: control comes alive as
 // soon as there is any airspeed worth using.
 #define AUTH_V_MIN          10.0f    // canards driven only inside this window

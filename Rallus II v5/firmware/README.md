@@ -11,8 +11,8 @@ just below the nose cone. Dual core:
   MAX31855 bay thermocouple (10 Hz), USB CDC command line, LED, battery ADC.
 
 Canards are driven ONLY during BOOST/COAST with v_hat in [10, 275] m/s
-(the real motor, K179 per openMotor on `Motors.ric`, burns 7.2 s and tops
-out near 180 m/s / M0.53; thresholds in `config.h` are set for it). Deflection is
+(the 60/40 KNER motor in `Motors.ric`, J323 in openMotor, burns 3 s and
+tops out near 170 m/s / M0.50; thresholds in `config.h` are set for it). Deflection is
 capped 15 deg below 100 m/s, tapering to 3 deg by 250 m/s. Every other
 moment the servos are commanded to exact center. The watchdog is fed only
 by the control ISR: a hung control loop resets the whole board.
@@ -68,9 +68,9 @@ The CLI command `x` reboots into BOOTSEL without touching the cable.
 Module gotchas: the GY-63 (MS5611) boots in I2C mode, **tie its PS pin to
 GND** for SPI. The ICM-42688-P breakout needs its orientation declared:
 `IMU_UP_AXIS` in `config.h` names the chip axis that points at the nose
-(default +X, board flat on the blade). The ICM-42688-P tops out at +/-16 g;
-the ~18 g thrust peak clips briefly, which costs a few m/s of `v_hat` and
-nothing else.
+(default +X, board flat on the blade). The ICM-42688-P tops out at +/-16 g,
+well above this motor's 6.5 g nominal (12.6 g at the fast end of the
+burn-rate estimate).
 
 Pyro safety, as implemented: the charge fires at apogee only if at least
 12 s have passed since liftoff AND the flight gained 150 m of baro altitude
@@ -178,7 +178,7 @@ State: 0 PADIDLE 1 ARMED 2 BOOST 3 COAST 4 APOGEE 5 DESCENT 6 LANDED
 ## Tuning
 
 Gains live in `include/config.h` (`ROLL_KP` 0.3, `ROLL_KI` 1.0). They come
-from `../sim/roll_sim.py`, which flies the K179 thrust profile against
+from `../sim/roll_sim.py`, which flies the J323 thrust profile against
 booster-fin cant with OpenRocket's roll inertia. Retune from flight logs
 after M3/M4; if the log shows a small steady roll oscillation (linkage
 backlash), halve `ROLL_KI`.

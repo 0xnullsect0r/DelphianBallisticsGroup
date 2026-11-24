@@ -7,7 +7,7 @@ aft compared with OpenRocket on this airframe).
 
 Needs:  pip install jpype1   and OpenRocket 24.12 installed (jar path below).
 The EX motor curve must be where OpenRocket looks for user motors:
-    cp openrocket/Rallus_EX_K179.eng ~/.openrocket/ThrustCurves/
+    cp openrocket/Rallus_EX_J*.eng ~/.openrocket/ThrustCurves/
 
 Usage:
     python3 sim/openrocket_run.py "openrocket/Rallus Mk.II V5.ork"

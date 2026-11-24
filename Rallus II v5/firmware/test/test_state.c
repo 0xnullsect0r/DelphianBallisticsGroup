@@ -32,18 +32,18 @@ static const char* run(const char*name, float boost_g, float boost_s, float coas
     st=n; if(st==ST_LANDED)break; if(fired==0 && (g_sys.events&EV_PYRO_INHIBIT) && n==ST_ARMED && t>t_lift+3000){break;}
   }
   printf("%-34s fired=%d at T+%.2fs (true apogee T+%.2fs, v=%.1f m/s) inhibit=%d final=%d\n",name,fired,fired?(fired_t-t_lift)/1000.f:0,apo_t,vfire,!!(g_sys.events&EV_PYRO_INHIBIT),st);
-  int flight = boost_s > 2.0f;
+  int flight = boost_s > 1.0f;
   int ok = flight ? (fired==1 && (fired_t-t_lift)/1000.f >= apo_t-0.6f && (fired_t-t_lift)/1000.f <= apo_t+1.5f)
                   : (fired==0 && (g_sys.events&EV_PYRO_INHIBIT) && st==ST_ARMED);
   if(!ok){fails++; printf("   ^^^ FAIL\n");}
   return 0; }
 int main(void){
-  run("K179 real motor 3.6g x7.2s",3.6,7.2,1.2,1,0,0);
-  run("K179, weak (-20%) 2.9g x8s",2.9,8.0,1.0,1,0,0);
-  run("K281 tight throat 5.5g x5.2s",5.5,5.2,1.8,1,0,0);
-  run("K179, baro dead",3.6,7.2,1.2,0,0,0);
-  run("K179, baro spike T+10",3.6,7.2,1.2,1,10.0,0);
-  run("K179, 20 deg tilt",3.6,7.2,1.2,1,0,20);
+  run("J323 60/40 nominal 5.4g x3.0s",5.4,3.0,1.5,1,0,0);
+  run("J184 60/40 slow 3.0g x4.9s",3.0,4.9,1.0,1,0,0);
+  run("J580 60/40 fast 9.8g x1.75s",9.8,1.75,2.2,1,0,0);
+  run("J323, baro dead",5.4,3.0,1.5,0,0,0);
+  run("J323, baro spike T+8",5.4,3.0,1.5,1,8.0,0);
+  run("J323, 20 deg tilt",5.4,3.0,1.5,1,0,20);
   run("handling bump 4g x0.15s",4,0.15,0,1,0,0);
   run("drop/shake 6g x0.3s",6,0.3,0,1,0,0);
   printf(fails ? "\n%d FAILED\n" : "\nall state tests passed\n", fails);

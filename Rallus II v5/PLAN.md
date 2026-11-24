@@ -36,6 +36,100 @@ Radio reality baked in: WiFi dies a few hundred meters out; LoRa carries
 the flight and the beacon. Hardware mounting for Pi/GPS/LoRa on the blade
 is the remaining v5 work item.
 
+## Motor on the real propellant: 60/40 KNO3 / erythritol (2026-11-24)
+
+Supersedes every K179 / "Motors.ric as drawn" number further down.
+
+**The old burn law was wrong by a factor of two.** The previous
+`Motors.ric` used a = 4.256e-6, n = 0.419: exactly half of Gudnason's
+measured KNER strand-burner rates (DTU thesis 2010, data reproduced in
+arXiv 2303.06294, App. 7) at every pressure. Chamber pressure goes as
+a^(1/(1-n)), so that motor (9 grains, 12.7 mm core, 8.13 mm throat) would
+really have run near 10 MPa, not the 3.2 MPa openMotor showed. Do not build
+the old geometry.
+
+**Propellant model (all reproducible):**
+
+| Input | Value | Source |
+|---|---|---|
+| Mix | 60 % KNO3 / 40 % erythritol, nothing else | you |
+| Density | 1700 kg/m^3 (95 % of 1785 ideal) | you |
+| Chamber temperature | 1349 K ideal, 1282 K entered (95 %, openMotor preset convention) | `sim/kner_thermo.py` |
+| Molecular weight / k | 33.97 / 1.1585 (gas + K2CO3 mixture) | `sim/kner_thermo.py` |
+| Burn rate | 0.80 x Gudnason 65/35: 2.23 mm/s x P[MPa]^0.416 | estimate, see below |
+
+`sim/kner_thermo.py` (Cantera, NASA data, erythritol -885.2 kJ/mol from
+NIST) reproduces the published 65/35 KNER numbers: 1606 K vs 1608, M 38.57
+vs 38.78, k 1.1389 vs 1.1390, c* 924 vs 923. 60/40 burns 250 K cooler than
+65/35 but its gas is lighter, so c* only drops 3 % (897 vs 923 m/s).
+
+No one has published a 60/40 KNER burn rate. Cooler flame should mean
+slower burning, so it is bracketed at 0.60x / 0.80x / 1.10x of the 65/35 law
+(slow / nominal / fast; fast also covers motors burning a little faster
+than strands).
+
+**The design (`Motors.ric`, from `sim/motor_design.py`):** 6 BATES grains,
+42.8 mm OD x 76.2 mm (3 in) long, 20 mm core, forward face of the top grain
+inhibited; nozzle 9.5 mm throat, 23.0 mm exit, 15 deg divergence. Chosen
+from 1820 combinations (grain count 5-9, core 12-26 mm, throat 6-13 mm) as
+the best impulse that keeps the fast case under 8 MPa and below the mass
+flux limit, with >= 5:1 thrust-to-weight nominal and no openMotor alerts.
+
+| openMotor | Slow (0.6x) | **Nominal (0.8x)** | Fast (1.1x) |
+|---|---|---|---|
+| Designation | J184 | **J323** | J580 |
+| Total impulse | 911 N s | **976 N s** | 1022 N s |
+| Burn time | 4.9 s | **3.0 s** | 1.75 s |
+| Peak chamber pressure | 2.3 MPa | **3.8 MPa** | 6.5 MPa |
+| Peak mass flux | 464 | **756** | 1292 kg/m^2/s |
+| Propellant | 874 g | **874 g** | 874 g |
+| Alerts | none | **none** | none |
+
+| OpenRocket (80 mm fins, 280 g nose) | Slow | **Nominal** | Fast |
+|---|---|---|---|
+| Liftoff mass | 5.16 kg | **5.16 kg** | 5.16 kg |
+| Thrust/weight at ignition | 3.0 | **5.4** | 9.8 |
+| Rail exit | 11.6 m/s | **16.9 m/s** | 23.9 m/s |
+| Max speed | 136 m/s | **170 m/s, M0.50** | 192 m/s |
+| Max acceleration | 3.3 g | **6.5 g** | 12.6 g |
+| Apogee (calm) | 1139 m | **1447 m at 18.2 s** | 1617 m |
+| Min margin, gusty 5 m/s | 0.77 cal | **1.31 cal** | 1.54 cal |
+| Chute deploy speed, calm / 2 m/s / gusty | 11 / 18 / 31 | **10 / 12 / 23 m/s** | 10 / 11 / 14 |
+
+Against the old K179 numbers: rail exit 12.9 -> 16.9 m/s and gusty deploy
+speed 36 -> 23 m/s, apogee 2040 -> ~1450 m. The cooler, slower-burning 60/40
+simply has less in it; a shorter, harder burn trades apogee for a rocket
+that leaves the rail properly.
+
+**What to do before building the motor:**
+
+1. Strand-burn the actual 60/40 at a few pressures, or at least cast and
+   burn a short test grain in a small motor. That number decides everything.
+2. Size the throat from it (`python3 sim/motor_design.py`), keeping the
+   same ~3.8 MPa design pressure:
+
+   | Burn rate at 3.5 MPa | Throat | Exit | Result |
+   |---|---|---|---|
+   | 2.8 mm/s (0.6x) | 8.2 mm | 19.9 mm | J242, T/W 4.0 |
+   | 3.3 mm/s (0.7x) | 8.9 mm | 21.5 mm | J283, T/W 4.7 |
+   | **3.75 mm/s (0.8x)** | **9.5 mm** | **23.0 mm** | **J323, T/W 5.4** |
+   | 4.2 mm/s (0.9x) | 10.1 mm | 24.4 mm | J364, T/W 6.1 |
+   | 4.7 mm/s (1.0x) | 10.6 mm | 25.7 mm | J404, T/W 6.8 |
+   | 5.2 mm/s (1.1x) | 11.1 mm | 27.0 mm | J444, T/W 7.4 |
+
+   Below about 0.75x a smaller throat holds the pressure but not the
+   thrust; you would need more burning surface (larger core) or a higher
+   design pressure instead. Re-run the search then.
+3. Pressure-test the case, closure and nozzle retention well past the
+   fast-case 6.5 MPa before the first static fire, and static-fire before
+   flying. Replace the .eng with the measured curve.
+
+Thrust curves: `openrocket/Rallus_EX_J323_nominal.eng` (in the ORK) plus
+`_J184_slow` and `_J580_fast`; copy all three to `~/.openrocket/ThrustCurves/`.
+Roll gains (Kp 0.3 / Ki 1.0), the firmware thresholds and the host tests
+were re-checked on all three thrust levels: liftoff detect, pyro lockout
+(apogee 17-18.5 s) and the 16 g IMU range all still fit.
+
 ## v5 audit (2026-11-22): what was wrong, what changed
 
 Full pass over firmware, Pi code, dashboard and hardware notes. Fixed in
@@ -61,7 +155,7 @@ parser and a rocket<->ground simulated flight all pass host tests):
 
 **1. The motor is not a J530. Everything is now based on `Motors.ric`.**
 `sim/openmotor_run.py` runs the file through openMotor's own engine
-(motorlib); the result is exported to `openrocket/Rallus_EX_K179.eng`, and
+(motorlib); the result was exported to `Rallus_EX_K179.eng` (removed 2026-11-24, wrong burn law), and
 that motor (DBG K179) replaces the Cesaroni J530 in
 `openrocket/Rallus Mk.II V5.ork`. `sim/openrocket_run.py` runs the three
 stored OpenRocket simulations headlessly.
@@ -248,8 +342,8 @@ each half recovers under its own chute (24 in upper, 30 in booster).
 | Upper section | PLA conical nose (362 g) + aluminum tube, 2 mm wall, 305 mm |
 | Booster | steel tube, 4 mm wall (it is the motor case), 559 mm + 4 steel fins, 141 mm root, 80 mm span |
 | Canards | 4x brass, 35 mm root / 15.4 mm tip / 28 mm span, 35 deg LE sweep, 1.5 mm |
-| Motor | Custom EX, 9-grain KNER BATES per Motors.ric: K179 in openMotor (179 N avg, 7.2 s) |
-| Liftoff mass | 5.34 kg (OpenRocket, v5 file) |
+| Motor | Custom EX, 60/40 KNO3/erythritol, 6 BATES per Motors.ric: J323 in openMotor (323 N avg, 3.0 s, estimate) |
+| Liftoff mass | 5.16 kg (OpenRocket, v5 file, J323) |
 
 V1 sim reference: apogee 2485 m, 263 m/s (M0.78) burnout, 19.3 g, 33.8 m/s
 off a 3 m rail. V2 is slightly draggier (bigger surfaces); re-sim pending.

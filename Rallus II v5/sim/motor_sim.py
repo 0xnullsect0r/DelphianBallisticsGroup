@@ -8,6 +8,7 @@ masses. Optionally writes a RASP .eng for OpenRocket.
 
 This is a cross-check of openMotor, not a replacement: same equations, no
 erosive/mass-flux model. Expect a few percent agreement on impulse.
+For design work use sim/motor_design.py (openMotor's own engine).
 
 Usage:
     python3 sim/motor_sim.py Motors.ric

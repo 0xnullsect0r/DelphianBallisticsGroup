@@ -1,91 +1,73 @@
 data:
   config:
-    ambPressure: 101324.99998565002
+    ambPressure: 101325.0
     burnoutThrustThres: 0.1
-    burnoutWebThres: 2.5400050800101604e-05
+    burnoutWebThres: 2.54e-05
     flowSeparationWarnPercent: 0.05
     mapDim: 750
     maxMachNumber: 0.7
     maxMassFlux: 1406.4697609001405
-    maxPressure: 10342500.000000002
+    maxPressure: 8000000.0
     minPortThroat: 2.0
     sepPressureRatio: 0.4
     timestep: 0.01
   grains:
   - properties:
-      coreDiameter: 0.012700025400050802
-      diameter: 0.04280007620015241
+      coreDiameter: 0.02
+      diameter: 0.0428
       inhibitedEnds: Top
-      length: 0.05080010160020321
+      length: 0.0762
     type: BATES
   - properties:
-      coreDiameter: 0.012700025400050802
-      diameter: 0.04280007620015241
+      coreDiameter: 0.02
+      diameter: 0.0428
       inhibitedEnds: Neither
-      length: 0.05080010160020321
+      length: 0.0762
     type: BATES
   - properties:
-      coreDiameter: 0.012700025400050802
-      diameter: 0.04280007620015241
+      coreDiameter: 0.02
+      diameter: 0.0428
       inhibitedEnds: Neither
-      length: 0.05080010160020321
+      length: 0.0762
     type: BATES
   - properties:
-      coreDiameter: 0.012700025400050802
-      diameter: 0.04280007620015241
+      coreDiameter: 0.02
+      diameter: 0.0428
       inhibitedEnds: Neither
-      length: 0.05080010160020321
+      length: 0.0762
     type: BATES
   - properties:
-      coreDiameter: 0.012700025400050802
-      diameter: 0.04280007620015241
+      coreDiameter: 0.02
+      diameter: 0.0428
       inhibitedEnds: Neither
-      length: 0.05080010160020321
+      length: 0.0762
     type: BATES
   - properties:
-      coreDiameter: 0.012700025400050802
-      diameter: 0.04280007620015241
+      coreDiameter: 0.02
+      diameter: 0.0428
       inhibitedEnds: Neither
-      length: 0.05080010160020321
-    type: BATES
-  - properties:
-      coreDiameter: 0.012700025400050802
-      diameter: 0.04280007620015241
-      inhibitedEnds: Neither
-      length: 0.05080010160020321
-    type: BATES
-  - properties:
-      coreDiameter: 0.012700025399999999
-      diameter: 0.0428000762
-      inhibitedEnds: Neither
-      length: 0.050800101599999994
-    type: BATES
-  - properties:
-      coreDiameter: 0.012700025400050802
-      diameter: 0.04280007620015241
-      inhibitedEnds: Neither
-      length: 0.05080010160020321
+      length: 0.0762
     type: BATES
   nozzle:
     convAngle: 45.0
     divAngle: 15.0
     efficiency: 0.88
     erosionCoeff: 0.0
-    exit: 0.0195280751
+    exit: 0.023
     slagCoeff: 0.0
-    throat: 0.0081280163
+    throat: 0.0095
     throatLength: 0.0031750064
   propellant:
-    density: 1757.6735598840764
-    name: Merp. - KNER
+    density: 1700.0
+    name: KNER 60/40 (est.)
     tabs:
-    - a: 4.255960989954857e-06
-      k: 1.043
-      m: 38.78
-      maxPressure: 10342500.000000002
+    - a: 7.103086650312257e-06
+      k: 1.1585
+      m: 33.97
+      maxPressure: 10342500.0
       minPressure: 0.0
-      n: 0.419
-      t: 1608.0
+      n: 0.416
+      t: 1281.55
 type: !!python/object/apply:uilib.fileIO.fileTypes
 - 3
 version: !!python/tuple

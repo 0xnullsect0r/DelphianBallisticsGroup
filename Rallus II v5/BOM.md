@@ -37,11 +37,11 @@
 **Electronics subtotal: ~$230** with both Pis, GPS and radios (minus
 altimeter if owned, minus filament if stocked).
 
-Motor is our own custom propellant (EX) — nothing to buy. It is NOT close to
-the CTI 1115J530 the plan was written around: openMotor's own engine run on
-`Motors.ric` (`sim/openmotor_run.py`) gives K179 (179 N average for 7.2 s).
-That curve is `openrocket/Rallus_EX_K179.eng` and is the motor now in the
-OpenRocket file; replace it when there is a static-test curve.
+Motor is our own propellant: 60/40 KNO3/erythritol, 874 g in six 42.8 x
+76.2 mm BATES grains with 20 mm cores, 9.5 mm throat (see PLAN "Motor on
+the real propellant"). Propellant ingredients and casting supplies are not
+on this list. `openrocket/Rallus_EX_J323_nominal.eng` is the simulated
+curve until there is a static test.
 
 Deliberately NOT bought: external SMA whips for the rocket (antennas stay
 inside the printed nose), smaller servos.

@@ -25,13 +25,12 @@ import random
 # ----------------------------------------------------------------------------
 # Vehicle / motor params, from Rallus Mk.II V1.ork + its sim data.
 # ----------------------------------------------------------------------------
-# 2026-11-22: REAL motor, openMotor's result for Motors.ric (9-grain KNER
-# BATES, K179), masses from the OpenRocket run of the v5 file. The CTI J530
-# stand-in (530 N for 2.1 s) was nothing like it.
-MASS_START = 5.34        # kg, loaded
+# 2026-11-24: 60/40 KNER motor in Motors.ric (6 BATES, 20 mm core, 9.5 mm
+# throat), openMotor nominal case J323; masses from OpenRocket.
+MASS_START = 5.16        # kg, loaded
 MASS_END = 4.29          # kg, burnout
-BURN_TIME = 7.18         # s
-THRUST_N = 179.0         # N average during burn
+BURN_TIME = 3.01         # s
+THRUST_N = 323.0         # N average during burn
 CD = 0.45
 AREA = math.pi * 0.0254 ** 2   # m^2, 2 in body
 RHO = 1.225              # kg/m^3, sea level
@@ -244,7 +243,7 @@ if __name__ == "__main__":
                  ("controlled, 4 fins @ %.1f deg" % CANT_DEG, {}),
                  ("controlled, 1 fin @ 0.5 deg", dict(cant_deg=0.5, n_canted=1)),
                  ("controlled, 4 fins @ 0.5 deg (bad build)", dict(cant_deg=0.5))]
-        print(f"Rallus II roll sim: K179 profile, Ixx {IXX}, Kp {KP}, Ki {KI}")
+        print(f"Rallus II roll sim: J323 profile, Ixx {IXX}, Kp {KP}, Ki {KI}")
         for name, kw in cases:
             random.seed(42)
             s = simulate(plot=args.plot and not kw, **kw)
